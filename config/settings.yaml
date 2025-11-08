@@ -1,0 +1,23 @@
+app:
+  database_path: "var/app.db"
+  fetch:
+    max_results: 50
+    lang: "en"
+  llm:
+    provider: "xai"
+    model: "grok-4"
+    temperature: 0.2
+  scoring:
+    weights:
+      question: 0.25
+      negative_sentiment: 0.30
+      urgency: 0.25
+      impact: 0.20
+
+queries:
+  - name: "brand_support"
+    enabled: true
+    query: "(@YourBrand OR #YourBrand) (help OR support OR broken OR down OR bug OR crash) -is:retweet -is:reply lang:en"
+  - name: "competitor_chatter"
+    enabled: false
+    query: "(CompetitorA OR CompetitorB) (switch OR alternatives) -is:retweet -is:reply lang:en"

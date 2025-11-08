@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling>=1.18.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "signal-harvester"
+version = "0.1.0"
+description = "Harvest, triage, and score social signals from X (Twitter) with LLM-assisted classification."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Your Name", email = "you@example.com" }]
+license = { text = "MIT" }
+
+dependencies = [
+  "httpx>=0.27.0",
+  "pydantic>=2.4.0",
+  "PyYAML>=6.0.1",
+  "fastapi>=0.112.0",
+  "uvicorn>=0.30.0",
+  "typer>=0.12.3",
+  "rich>=13.7.0",
+  "fastapi-limiter>=0.1.6",
+  "redis>=5.0.0",
+  "prometheus-client>=0.20.0",
+  "sentry-sdk[fastapi]>=2.0.0",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.37.0"]
+anthropic = ["anthropic>=0.34.0"]
+dev = [
+  "pytest>=8.3.3",
+  "coverage>=7.6.0",
+  "mypy>=1.10.0",
+  "ruff>=0.6.5",
+  "alembic>=1.13.1",
+  "SQLAlchemy>=2.0.30",
+]
+
+[project.scripts]
+harvest = "signal_harvester.cli:main"
+harvest-api = "signal_harvester.api:main"
+harvest-snapshot = "signal_harvester.snapshot_cli:main"
+harvest-verify = "signal_harvester.verify:main"
+harvest-site = "signal_harvester.site:main"
+harvest-html = "signal_harvester.html:main"
+harvest-serve = "signal_harvester.serve:main"
+harvest-prune = "signal_harvester.prune:main"
+harvest-stats = "signal_harvester.stats:main"
+harvest-quota = "signal_harvester.quota:main"
+harvest-retain = "signal_harvester.retain:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/signal_harvester"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
+
+[tool.pyright]
+pythonVersion = "3.10"

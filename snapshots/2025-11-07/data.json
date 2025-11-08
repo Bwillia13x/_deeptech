@@ -1,0 +1,9 @@
+{
+  "rows": [
+    {
+      "tweet_id": "123",
+      "text": "Test tweet",
+      "salience": 85.0
+    }
+  ]
+}

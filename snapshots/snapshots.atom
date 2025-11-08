@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Signal Harvester Snapshots</title>
+  <link href="https://example.com/snapshots/snapshots.atom" rel="self"/>
+  <link href="https://example.com/snapshots"/>
+  <updated>2025-11-07T16:30:57.030909Z</updated>
+  <id>https://example.com/snapshots</id>
+  <entry>
+    <title>Snapshot 2025-11-07</title>
+    <link href="https://example.com/snapshots/2025-11-07/"/>
+    <id>https://example.com/snapshots/2025-11-07/</id>
+    <updated>2025-11-07T00:00:00Z</updated>
+    <summary>Signal harvester snapshot for 2025-11-07</summary>
+  </entry>
+</feed>

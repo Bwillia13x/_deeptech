@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  signal-harvester:
+    build: .
+    container_name: signal-harvester
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONPATH=/app/src
+      - DATABASE_PATH=/app/var/app.db
+      - X_BEARER_TOKEN=${X_BEARER_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      - HARVEST_API_KEY=${HARVEST_API_KEY}
+    volumes:
+      - ./var:/app/var
+      - ./data:/app/data
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; response = httpx.get('http://localhost:8000/health', timeout=2); exit(0 if response.status_code == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Add a scheduler for running the pipeline periodically
+  scheduler:
+    build: .
+    container_name: signal-harvester-scheduler
+    command: ["harvest", "daemon", "--interval", "300"]
+    environment:
+      - PYTHONPATH=/app/src
+      - DATABASE_PATH=/app/var/app.db
+      - X_BEARER_TOKEN=${X_BEARER_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+    volumes:
+      - ./var:/app/var
+      - ./data:/app/data
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+    depends_on:
+      signal-harvester:
+        condition: service_healthy
+    restart: unless-stopped

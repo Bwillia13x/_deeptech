@@ -1,0 +1,39 @@
+{
+  "files": [
+    {
+      "path": "data.csv",
+      "sha256": "cb4d5ca1e64330c2c7ef6b9abe62c78731092cf799f2f69820a0c3044ba8513d",
+      "size": 45
+    },
+    {
+      "path": "data.csv.gz",
+      "sha256": "cdabe8d4d17af049892a12eaeca2d508d8704793b7c3b82a279c98f84a60d42a",
+      "size": 71
+    },
+    {
+      "path": "data.json",
+      "sha256": "b90a4447caefa5ddf99ce1ff66686a14615477b24686fbb15a8f6a3f96251551",
+      "size": 107
+    },
+    {
+      "path": "data.json.gz",
+      "sha256": "d011b20583161b56522f06ac46cf1ce95a3df624fa970cd1d5e527cf51316ec6",
+      "size": 104
+    },
+    {
+      "path": "data.ndjson",
+      "sha256": "f9bec04afba26d9a3d7f1d265f95e0cead6b5553c747cf4a6ee4b93a9ab88de8",
+      "size": 60
+    },
+    {
+      "path": "data.ndjson.gz",
+      "sha256": "a661c4e2bd728835a9ce49c3293108e51843bee6f209496bd25f1de1157ebdf4",
+      "size": 83
+    },
+    {
+      "path": "schema.json",
+      "sha256": "70bbb9c91f313ce3a5919fe1c350bca9dde1d3c4b278f484fbcf30f666c068f8",
+      "size": 384
+    }
+  ]
+}

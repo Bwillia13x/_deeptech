@@ -1,0 +1,188 @@
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+from typing import Dict, List, Optional
+
+from .logger import configure_logging, get_logger
+from .rebuild import run_rebuilds
+from .site import existing_snapshots
+
+log = get_logger(__name__)
+
+
+def _dir_size(path: str) -> int:
+    total = 0
+    for root, dirs, files in os.walk(path, onerror=None):
+        for name in files:
+            fp = os.path.join(root, name)
+            try:
+                st = os.lstat(fp)
+                total += int(getattr(st, "st_size", 0) or 0)
+            except Exception:
+                # Ignore unreadable files
+                pass
+    return total
+
+
+def prune_snapshots(
+    base_dir: str,
+    keep: int,
+    dry_run: bool = True,
+    rebuild_site: bool = False,
+    rebuild_html: bool = False,
+    site_args: Optional[List[str]] = None,
+    html_args: Optional[List[str]] = None,
+    ignore_missing_rebuilds: bool = True,
+) -> Dict[str, object]:
+    """
+    Prune snapshots by keeping only the newest 'keep' snapshots.
+    Removes oldest-first to reach the desired count.
+    """
+    if keep < 0:
+        raise ValueError("keep must be >= 0")
+
+    snaps = existing_snapshots(base_dir)
+    log.info("Found %d snapshots", len(snaps))
+    if not snaps:
+        res = {
+            "ok": True,
+            "base_dir": base_dir,
+            "dry_run": dry_run,
+            "before": {"snapshot_count": 0, "total_bytes": 0, "total_files": 0, "snapshots": []},
+            "after": None if dry_run else {"snapshot_count": 0, "total_bytes": 0, "total_files": 0, "snapshots": []},
+            "keep": keep,
+            "planned_remove": [],
+            "removed": [],
+            "errors": [],
+            "rebuild_result": None,
+        }
+        return res
+
+    # Oldest first; keep newest `keep`
+    to_remove = snaps[:-keep] if keep > 0 else snaps[:]
+    snaps[-keep:] if keep > 0 else []
+
+    freed = 0
+    actually_removed: List[str] = []
+    errors: List[Dict[str, str]] = []
+
+    for snap in to_remove:
+        path = os.path.join(base_dir, snap)
+        size = _dir_size(path)
+        freed += size
+        log.info("Remove snapshot %s (size ~ %d bytes)%s", snap, size, " [dry-run]" if dry_run else "")
+        if not dry_run:
+            try:
+                shutil.rmtree(path)
+                actually_removed.append(snap)
+            except Exception as e:
+                log.error("Failed to remove %s: %s", path, e)
+                errors.append({"name": snap, "error": str(e)})
+
+    remaining = existing_snapshots(base_dir)
+
+    rebuild_result = None
+    if rebuild_site or rebuild_html:
+        rebuild_result = run_rebuilds(
+            base_dir,
+            rebuild_site=rebuild_site,
+            rebuild_html=rebuild_html,
+            dry_run=dry_run,
+            site_args=site_args,
+            html_args=html_args,
+            ignore_missing=ignore_missing_rebuilds,
+        )
+
+    return {
+        "ok": len(errors) == 0,
+        "base_dir": base_dir,
+        "dry_run": dry_run,
+        "before": {
+            "snapshot_count": len(snaps),
+            "total_bytes": 0,
+            "total_files": 0,
+            "snapshots": []
+        },
+        "after": None if dry_run else {
+            "snapshot_count": len(remaining),
+            "total_bytes": 0,
+            "total_files": 0,
+            "snapshots": []
+        },
+        "keep": keep,
+        "planned_remove": to_remove,
+        "removed": actually_removed if not dry_run else [],
+        "freed_bytes": freed,
+        "errors": errors,
+        "rebuild_result": rebuild_result,
+    }
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="harvest-prune", description="Prune snapshots by keeping only the newest N snapshots."
+    )
+    parser.add_argument("--base-dir", required=True)
+    parser.add_argument("--keep", required=True, type=int)
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--force", action="store_true", help="Apply changes (default dry-run)")
+    parser.add_argument("--rebuild-site", action="store_true", help="Rebuild site index after pruning")
+    parser.add_argument("--rebuild-html", action="store_true", help="Rebuild HTML after pruning")
+    parser.add_argument("--site-arg", action="append", default=[], help="Extra arg for site rebuild (repeatable)")
+    parser.add_argument("--html-arg", action="append", default=[], help="Extra arg for HTML rebuild (repeatable)")
+    parser.add_argument(
+        "--ignore-missing-rebuilds",
+        action="store_true",
+        default=True,
+        help="Skip rebuild steps if modules are missing"
+    )
+    parser.add_argument("--log-level", default="INFO")
+    args = parser.parse_args(argv)
+
+    configure_logging(args.log_level)
+
+    dry_run = not args.force
+
+    try:
+        res = prune_snapshots(
+            base_dir=args.base_dir,
+            keep=args.keep,
+            dry_run=dry_run,
+            rebuild_site=args.rebuild_site,
+            rebuild_html=args.rebuild_html,
+            site_args=args.site_arg or [],
+            html_args=args.html_arg or [],
+            ignore_missing_rebuilds=args.ignore_missing_rebuilds,
+        )
+    except Exception as e:
+        log.exception("Prune failed")
+        print("[FAIL] prune failed:", e)
+        return 2
+
+    if args.json:
+        import json
+        print(json.dumps(res, indent=2, default=str))
+        return 0
+
+    # type: ignore
+    before = res["before"]
+    # type: ignore
+    after = res["after"]
+
+    from .stats import _humanize_bytes
+    print(f"[OK] Before: {int(before['snapshot_count'])} snapshots, total size {_humanize_bytes(int(before['total_bytes']))}")  # type: ignore
+    if dry_run:
+        # type: ignore
+        print(f"[DRY-RUN] Would remove: {', '.join(res['planned_remove'])}")
+        return 0
+
+    print("[APPLY] Removed:", ", ".join(res["removed"]))  # type: ignore
+    if after:
+        print(f"[OK] After: {int(after['snapshot_count'])} snapshots, total size {_humanize_bytes(int(after['total_bytes']))}")  # type: ignore
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
