@@ -1,0 +1,261 @@
+---
+# Alertmanager Kubernetes Deployment
+# Alert routing and notification for Signal Harvester
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: signal-harvester
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+      # Slack webhook URL - configure via secret in production
+
+    # Template for alerts
+    templates:
+      - '/etc/alertmanager/templates/*.tmpl'
+
+    # Route tree for alerts
+    route:
+      receiver: 'default'
+      group_by: ['alertname', 'cluster', 'service']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 12h
+      routes:
+        # Critical alerts - immediate notification
+        - match:
+            severity: critical
+          receiver: 'critical-alerts'
+          group_wait: 0s
+          repeat_interval: 1h
+
+        # Warning alerts - grouped notifications
+        - match:
+            severity: warning
+          receiver: 'warning-alerts'
+          group_wait: 30s
+          repeat_interval: 4h
+
+        # Discovery pipeline alerts
+        - match:
+            component: discovery
+          receiver: 'discovery-alerts'
+
+        # LLM usage alerts
+        - match:
+            component: llm
+          receiver: 'llm-alerts'
+
+    # Alert receivers - configure Slack webhooks in production
+    receivers:
+      - name: 'default'
+        slack_configs:
+          - api_url: '{{ .ExternalURL }}/slack/default'
+            channel: '#signal-harvester-alerts'
+            title: 'Signal Harvester Alert'
+            text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+            send_resolved: true
+
+      - name: 'critical-alerts'
+        slack_configs:
+          - api_url: '{{ .ExternalURL }}/slack/critical'
+            channel: '#signal-harvester-critical'
+            title: '🚨 CRITICAL: {{ .GroupLabels.alertname }}'
+            text: |
+              *Alert:* {{ .GroupLabels.alertname }}
+              *Severity:* {{ .CommonLabels.severity }}
+              *Summary:* {{ .CommonAnnotations.summary }}
+              *Description:* {{ .CommonAnnotations.description }}
+              {{ range .Alerts }}
+                *Instance:* {{ .Labels.instance }}
+                *Status:* {{ .Status }}
+              {{ end }}
+            send_resolved: true
+
+      - name: 'warning-alerts'
+        slack_configs:
+          - api_url: '{{ .ExternalURL }}/slack/warning'
+            channel: '#signal-harvester-alerts'
+            title: '⚠️ WARNING: {{ .GroupLabels.alertname }}'
+            text: |
+              *Alert:* {{ .GroupLabels.alertname }}
+              *Summary:* {{ .CommonAnnotations.summary }}
+              {{ range .Alerts }}
+                *Instance:* {{ .Labels.instance }}
+              {{ end }}
+            send_resolved: true
+
+      - name: 'discovery-alerts'
+        slack_configs:
+          - api_url: '{{ .ExternalURL }}/slack/discovery'
+            channel: '#signal-harvester-discovery'
+            title: '🔍 Discovery Pipeline Alert'
+            text: '{{ .CommonAnnotations.description }}'
+            send_resolved: true
+
+      - name: 'llm-alerts'
+        slack_configs:
+          - api_url: '{{ .ExternalURL }}/slack/llm'
+            channel: '#signal-harvester-llm'
+            title: '🤖 LLM Usage Alert'
+            text: '{{ .CommonAnnotations.description }}'
+            send_resolved: true
+
+    # Inhibition rules - suppress certain alerts when others are firing
+    inhibit_rules:
+      # Suppress warning alerts when critical alert is firing
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'cluster', 'service']
+
+      # Suppress high latency warnings when API is down
+      - source_match:
+          alertname: 'APIDown'
+        target_match_re:
+          alertname: '.*Latency.*'
+        equal: ['instance']
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-slack-urls
+  namespace: signal-harvester
+type: Opaque
+stringData:
+  # Slack webhook URLs - CONFIGURE IN PRODUCTION
+  default: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+  critical: "https://hooks.slack.com/services/YOUR/CRITICAL/URL"
+  warning: "https://hooks.slack.com/services/YOUR/WARNING/URL"
+  discovery: "https://hooks.slack.com/services/YOUR/DISCOVERY/URL"
+  llm: "https://hooks.slack.com/services/YOUR/LLM/URL"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: alertmanager-storage
+  namespace: signal-harvester
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: signal-harvester
+  labels:
+    app: alertmanager
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+        component: monitoring
+    spec:
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.26.0
+          args:
+            - "--config.file=/etc/alertmanager/alertmanager.yml"
+            - "--storage.path=/alertmanager"
+            - "--web.external-url=https://alertmanager.signal-harvester.example.com"
+            - "--cluster.advertise-address=0.0.0.0:9093"
+          ports:
+            - containerPort: 9093
+              name: web
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: alertmanager-config
+              mountPath: /etc/alertmanager
+            - name: alertmanager-storage
+              mountPath: /alertmanager
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9093
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9093
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: alertmanager-config
+          configMap:
+            name: alertmanager-config
+        - name: alertmanager-storage
+          persistentVolumeClaim:
+            claimName: alertmanager-storage
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: signal-harvester
+  labels:
+    app: alertmanager
+    component: monitoring
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9093
+      targetPort: 9093
+      protocol: TCP
+      name: web
+  selector:
+    app: alertmanager
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: alertmanager
+  namespace: signal-harvester
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: alertmanager-basic-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Authentication Required - Alertmanager"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - alertmanager.signal-harvester.example.com
+      secretName: alertmanager-tls
+  rules:
+    - host: alertmanager.signal-harvester.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: alertmanager
+                port:
+                  number: 9093

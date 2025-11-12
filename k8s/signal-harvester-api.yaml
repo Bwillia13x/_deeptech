@@ -1,0 +1,389 @@
+---
+# Signal Harvester API Kubernetes Deployment
+# Based on load test baseline: p95=11.58ms, p99=39.17ms @ 100 VUs
+# Resources tuned for optimal performance and cost efficiency
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: signal-harvester
+  labels:
+    name: signal-harvester
+    environment: production
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: signal-harvester-config
+  namespace: signal-harvester
+data:
+  # Application configuration
+  DATABASE_PATH: /app/var/app.db
+  PYTHONPATH: /app/src
+  LOG_LEVEL: INFO
+  # Add settings.yaml content here or mount as file
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: signal-harvester-secrets
+  namespace: signal-harvester
+type: Opaque
+stringData:
+  # API Keys - CHANGE IN PRODUCTION
+  X_BEARER_TOKEN: ""
+  OPENAI_API_KEY: ""
+  ANTHROPIC_API_KEY: ""
+  HARVEST_API_KEY: ""
+  SLACK_WEBHOOK_URL: ""
+  GRAFANA_ADMIN_PASSWORD: "changeme"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: signal-harvester-data
+  namespace: signal-harvester
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signal-harvester-api
+  namespace: signal-harvester
+  labels:
+    app: signal-harvester
+    component: api
+    version: v1
+spec:
+  replicas: 2  # Start with 2 for high availability
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0  # Zero downtime deployments
+  selector:
+    matchLabels:
+      app: signal-harvester
+      component: api
+  template:
+    metadata:
+      labels:
+        app: signal-harvester
+        component: api
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/prometheus"
+    spec:
+      serviceAccountName: signal-harvester
+      containers:
+        - name: api
+          image: signal-harvester:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          env:
+            - name: DATABASE_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: signal-harvester-config
+                  key: DATABASE_PATH
+            - name: PYTHONPATH
+              valueFrom:
+                configMapKeyRef:
+                  name: signal-harvester-config
+                  key: PYTHONPATH
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: signal-harvester-config
+                  key: LOG_LEVEL
+            # Secrets
+            - name: X_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: signal-harvester-secrets
+                  key: X_BEARER_TOKEN
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: signal-harvester-secrets
+                  key: OPENAI_API_KEY
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: signal-harvester-secrets
+                  key: ANTHROPIC_API_KEY
+            - name: HARVEST_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: signal-harvester-secrets
+                  key: HARVEST_API_KEY
+          # Resource limits based on load test results
+          # Load test: 100 VUs @ 11.58ms p95 with minimal resource usage
+          # These limits allow headroom for 300+ VUs per pod
+          resources:
+            requests:
+              cpu: 250m      # 0.25 CPU cores
+              memory: 512Mi  # 512 MB RAM
+            limits:
+              cpu: 1000m     # 1 CPU core max
+              memory: 2Gi    # 2 GB RAM max
+          volumeMounts:
+            - name: data
+              mountPath: /app/var
+            - name: logs
+              mountPath: /app/logs
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+          # Health checks
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          # Startup probe for slow starts
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12  # 60 seconds total
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: signal-harvester-data
+        - name: logs
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: signal-harvester-config
+      # Pod scheduling preferences
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - signal-harvester
+                topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: signal-harvester
+  namespace: signal-harvester
+  labels:
+    app: signal-harvester
+    component: api
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/prometheus"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app: signal-harvester
+    component: api
+  sessionAffinity: None  # Stateless API, no session affinity needed
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: signal-harvester
+  namespace: signal-harvester
+
+---
+# Horizontal Pod Autoscaler
+# Based on load test findings: p95=11.58ms @ 100 VUs
+# Target: Scale at 70% CPU or 50 req/s per pod
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: signal-harvester-api
+  namespace: signal-harvester
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: signal-harvester-api
+  minReplicas: 2   # High availability baseline
+  maxReplicas: 10  # Handle 500+ VUs (10 pods * 50+ VUs each)
+  metrics:
+    # Scale based on CPU utilization
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70  # Scale when pods reach 70% CPU
+    # Scale based on memory utilization
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80  # Scale when pods reach 80% memory
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60  # Wait 60s before scaling up
+      policies:
+        - type: Percent
+          value: 50  # Scale up by 50% (add 1 pod if 2 exist)
+          periodSeconds: 60
+        - type: Pods
+          value: 2   # Or add 2 pods at a time
+          periodSeconds: 60
+      selectPolicy: Max  # Use the policy that scales faster
+    scaleDown:
+      stabilizationWindowSeconds: 300  # Wait 5 minutes before scaling down
+      policies:
+        - type: Percent
+          value: 25  # Scale down by 25% (remove 1 pod if 4 exist)
+          periodSeconds: 60
+        - type: Pods
+          value: 1   # Or remove 1 pod at a time
+          periodSeconds: 180
+      selectPolicy: Min  # Use the policy that scales slower
+
+---
+# Pod Disruption Budget - Ensure availability during updates
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: signal-harvester-api
+  namespace: signal-harvester
+spec:
+  minAvailable: 1  # Always keep at least 1 pod running
+  selector:
+    matchLabels:
+      app: signal-harvester
+      component: api
+
+---
+# Network Policy - Secure pod communication
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: signal-harvester-api
+  namespace: signal-harvester
+spec:
+  podSelector:
+    matchLabels:
+      app: signal-harvester
+      component: api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Allow Prometheus scraping
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow HTTPS for external APIs (X, OpenAI, etc.)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+    # Allow HTTP (optional)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 80
+
+---
+# Ingress - External access with TLS
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: signal-harvester-api
+  namespace: signal-harvester
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/rate-limit: "100"  # 100 req/s per IP
+    nginx.ingress.kubernetes.io/limit-rps: "50"    # 50 req/s per connection
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "30"
+    # Enable CORS if needed
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.signal-harvester.example.com
+      secretName: signal-harvester-api-tls
+  rules:
+    - host: api.signal-harvester.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: signal-harvester
+                port:
+                  number: 8000
