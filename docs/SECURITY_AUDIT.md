@@ -52,6 +52,7 @@ pip install --upgrade <package>
 ```
 
 **Success Criteria:**
+
 - ✅ Zero critical vulnerabilities
 - ✅ Zero high vulnerabilities older than 7 days
 - ✅ Medium vulnerabilities addressed within 30 days
@@ -67,6 +68,7 @@ pip install --upgrade <package>
 ```
 
 **Check:**
+
 - [ ] X (Twitter) API bearer token (expires: _______)
 - [ ] OpenAI API key (last rotated: _______)
 - [ ] Anthropic API key (last rotated: _______)
@@ -78,6 +80,7 @@ pip install --upgrade <package>
 #### 3. Access Control Review
 
 **Review:**
+
 - [ ] Database access logs (no unauthorized access)
 - [ ] API access logs (rate limiting working correctly)
 - [ ] Admin user accounts (remove stale accounts)
@@ -87,6 +90,7 @@ pip install --upgrade <package>
 #### 4. Infrastructure Security
 
 **Check:**
+
 - [ ] SSL/TLS certificates (expiry > 30 days)
 - [ ] Firewall rules (no unnecessary open ports)
 - [ ] Database backups (last successful backup within 24 hours)
@@ -106,6 +110,7 @@ gitleaks detect --source . || echo "gitleaks not installed"
 ```
 
 **Review:**
+
 - [ ] No hardcoded secrets in code
 - [ ] `.env` files not committed
 - [ ] Proper input validation
@@ -115,6 +120,7 @@ gitleaks detect --source . || echo "gitleaks not installed"
 #### 6. Compliance Verification
 
 **Review:**
+
 - [ ] Data retention policy applied (90 days for X data)
 - [ ] User deletion requests processed within 30 days
 - [ ] Privacy policy up to date
@@ -303,6 +309,7 @@ harvest prune --older-than 90
 ```
 
 **Requirements:**
+
 - ✅ Delete tweet content after 90 days
 - ✅ Retain only tweet IDs and metadata
 - ✅ Respect user deletion requests within 30 days
@@ -360,6 +367,7 @@ harvest export-user-data --user-id <id> --format json
 ### SOC 2 Controls (If Applicable)
 
 **Control Requirements:**
+
 - [ ] Access controls implemented (RBAC)
 - [ ] Encryption at rest (database)
 - [ ] Encryption in transit (TLS 1.2+)
@@ -399,6 +407,7 @@ cat scan_results.json | jq '.vulnerabilities[]'
 #### 2. Triage
 
 **Assess:**
+
 - Severity level
 - Exploitability
 - Impact on systems
@@ -406,6 +415,7 @@ cat scan_results.json | jq '.vulnerabilities[]'
 - Workarounds
 
 **Prioritize:**
+
 1. Critical + Exploitable + Production = P0 (24h)
 2. High + Exploitable + Production = P1 (7d)
 3. Medium + Production = P2 (30d)
@@ -468,6 +478,7 @@ grep "export" logs/api.log | grep "GB"
 #### 2. Metrics Monitoring
 
 **Alerting Thresholds:**
+
 - Failed auth attempts > 100/hour → Alert
 - Rate limit violations > 1000/hour → Alert
 - Database query time p95 > 1000ms → Alert
@@ -510,6 +521,7 @@ tail -f logs/audit.log
 #### Phase 2: Containment (15 minutes - 2 hours)
 
 1. **Immediate containment**
+
    ```bash
    # Revoke compromised API keys
    harvest security revoke-key <key>
@@ -522,6 +534,7 @@ tail -f logs/audit.log
    ```
 
 2. **Evidence preservation**
+
    ```bash
    # Capture logs
    kubectl logs deployment/signal-harvester > incident_logs.txt
@@ -546,6 +559,7 @@ tail -f logs/audit.log
    - Document timeline
 
 2. **Remove threat**
+
    ```bash
    # Remove malware/backdoors
    # Update all credentials
@@ -553,6 +567,7 @@ tail -f logs/audit.log
    ```
 
 3. **Verify systems clean**
+
    ```bash
    # Run security scans
    harvest security scan
@@ -564,6 +579,7 @@ tail -f logs/audit.log
 #### Phase 4: Recovery (24 hours - 7 days)
 
 1. **Restore services**
+
    ```bash
    # Deploy patched version
    kubectl set image deployment/signal-harvester \
@@ -626,11 +642,13 @@ harvest security deprecate-key <key>
 #### Rate Limiting
 
 **Default Limits:**
+
 - Unauthenticated: 100 requests/minute
 - Authenticated: 1000 requests/minute
 - Admin: Unlimited
 
 **Per-Endpoint Limits:**
+
 - `/signals/bulk/*`: 10 requests/minute
 - `/pipeline/run`: 1 request/5 minutes
 - `/export/*`: 5 requests/hour
@@ -638,6 +656,7 @@ harvest security deprecate-key <key>
 ### Security Headers
 
 All API responses include:
+
 - `Strict-Transport-Security` (HSTS)
 - `Content-Security-Policy` (CSP)
 - `X-Frame-Options: DENY`
@@ -648,12 +667,14 @@ All API responses include:
 ### Input Validation
 
 **Always validate:**
+
 - Query parameters (limit, offset, sort)
 - Request body (JSON schema validation)
 - File uploads (type, size, content)
 - Headers (authentication, content-type)
 
 **Example:**
+
 ```python
 from pydantic import BaseModel, Field, validator
 
@@ -780,8 +801,8 @@ spec:
 
 ### Security Contacts
 
-- **Security Team**: security@yourdomain.com
-- **Incident Response**: incidents@yourdomain.com
+- **Security Team**: <security@yourdomain.com>
+- **Incident Response**: <incidents@yourdomain.com>
 - **On-call**: +1-555-0100
 
 ### External Resources
