@@ -140,17 +140,20 @@ harvest db explain "SELECT * FROM artifacts WHERE source = 'arxiv'"
 **Purpose:** Profile queries and detect slow executions
 
 **Options:**
+
 - `--threshold/-t`: Slow query threshold in ms (default: 100.0)
 - `--log/--no-log`: Enable logging to JSONL file (default: True)
 - `--recommendations/--no-recommendations`: Show index recommendations (default: True)
 
 **Output:**
+
 - Slow query table with execution times
 - Full table scan indicators
 - Index recommendations with benefit scores
 - CREATE INDEX statements
 
 **Example:**
+
 ```bash
 harvest db profile-slow-queries --threshold 50 --recommendations
 ```
@@ -160,15 +163,18 @@ harvest db profile-slow-queries --threshold 50 --recommendations
 **Purpose:** Generate index recommendations based on query patterns
 
 **Options:**
+
 - `--analyze-slow/--skip-slow`: Analyze slow query log (default: True)
 
 **Output:**
+
 - Current indexes table
 - Recommended indexes with benefit scores
 - CREATE INDEX statements
 - Reason for each recommendation
 
 **Example:**
+
 ```bash
 harvest db recommend-indexes
 ```
@@ -178,16 +184,20 @@ harvest db recommend-indexes
 **Purpose:** Show detailed query execution plan
 
 **Arguments:**
+
 - `query`: SQL query to explain
 
 **Options:**
+
 - `--verbose/-v`: Show bytecode-level EXPLAIN output
 
 **Output:**
+
 - EXPLAIN QUERY PLAN table
 - Bytecode opcodes (if --verbose)
 
 **Example:**
+
 ```bash
 harvest db explain "SELECT * FROM artifacts WHERE source = 'arxiv'" --verbose
 ```
@@ -537,6 +547,7 @@ harvest db analyze-performance
    - Workflows trigger automatically on push/PR
 
 2. **Run Performance Baseline:**
+
    ```bash
    # Establish baseline metrics
    harvest db profile-slow-queries --threshold 50
@@ -597,16 +608,19 @@ Based on execution plan, next priorities are:
 ### What Went Well
 
 ✅ **Practical Focus:**
+
 - Chose improvements that don't require external infrastructure
 - All features can be used immediately
 - Value delivered without deployment complexity
 
 ✅ **Comprehensive Testing:**
+
 - Performance tests validate SLA requirements
 - CI/CD catches issues before merge
 - Coverage tracking ensures quality
 
 ✅ **Developer Experience:**
+
 - Rich CLI output with tables and colors
 - Clear error messages and recommendations
 - Easy-to-use commands
@@ -614,16 +628,19 @@ Based on execution plan, next priorities are:
 ### Challenges Overcome
 
 🔧 **GitHub Actions Syntax:**
+
 - Linting warnings for valid syntax (false positives)
 - Resolved with proper YAML structure
 - Documented for future reference
 
 🔧 **Test Fixture Design:**
+
 - Needed realistic data volumes for accurate tests
 - Created comprehensive fixture with 1000+ rows
 - Balances test speed with accuracy
 
 🔧 **Index Recommendation Algorithm:**
+
 - Complex pattern extraction from SQL
 - Regex-based parsing with edge cases
 - Benefit scoring based on empirical data
@@ -631,16 +648,19 @@ Based on execution plan, next priorities are:
 ### Improvements for Next Time
 
 💡 **Enhanced Logging:**
+
 - Add structured logging (JSON) for better parsing
 - Log rotation for slow query log
 - Metrics export to Prometheus
 
 💡 **Test Parallelization:**
+
 - Use pytest-xdist for faster test runs
 - Isolate database fixtures per worker
 - Reduce CI time from 12min to <8min
 
 💡 **Documentation:**
+
 - Add architecture diagrams for query profiler
 - Create runbook for index optimization
 - Video tutorials for new CLI commands

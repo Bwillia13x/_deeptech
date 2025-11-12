@@ -8,6 +8,7 @@ from . import (  # noqa: F401
     discovery_commands,
     pipeline_commands,
     researcher_commands,  # Phase 2.3
+    security_commands,  # Phase 3 Week 4
     snapshot_commands,
 )
 from .core import app

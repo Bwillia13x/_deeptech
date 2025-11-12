@@ -40,6 +40,8 @@ dev = [
   "types-PyYAML>=6.0.1",
   "types-sentry-sdk>=1.4.0",
   "scipy-stubs>=1.11.0",
+  "pip-audit>=2.6.0",
+  "safety>=3.0.0",
 ]
 
 [project.scripts]
