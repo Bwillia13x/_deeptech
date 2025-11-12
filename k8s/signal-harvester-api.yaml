@@ -65,12 +65,12 @@ metadata:
     component: api
     version: v1
 spec:
-  replicas: 2  # Start with 2 for high availability
+  replicas: 2 # Start with 2 for high availability
   strategy:
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
-      maxUnavailable: 0  # Zero downtime deployments
+      maxUnavailable: 0 # Zero downtime deployments
   selector:
     matchLabels:
       app: signal-harvester
@@ -137,11 +137,11 @@ spec:
           # These limits allow headroom for 300+ VUs per pod
           resources:
             requests:
-              cpu: 250m      # 0.25 CPU cores
-              memory: 512Mi  # 512 MB RAM
+              cpu: 250m # 0.25 CPU cores
+              memory: 512Mi # 512 MB RAM
             limits:
-              cpu: 1000m     # 1 CPU core max
-              memory: 2Gi    # 2 GB RAM max
+              cpu: 1000m # 1 CPU core max
+              memory: 2Gi # 2 GB RAM max
           volumeMounts:
             - name: data
               mountPath: /app/var
@@ -175,7 +175,7 @@ spec:
             initialDelaySeconds: 0
             periodSeconds: 5
             timeoutSeconds: 3
-            failureThreshold: 12  # 60 seconds total
+            failureThreshold: 12 # 60 seconds total
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -222,7 +222,7 @@ spec:
   selector:
     app: signal-harvester
     component: api
-  sessionAffinity: None  # Stateless API, no session affinity needed
+  sessionAffinity: None # Stateless API, no session affinity needed
 
 ---
 apiVersion: v1
@@ -245,8 +245,8 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: signal-harvester-api
-  minReplicas: 2   # High availability baseline
-  maxReplicas: 10  # Handle 500+ VUs (10 pods * 50+ VUs each)
+  minReplicas: 2 # High availability baseline
+  maxReplicas: 10 # Handle 500+ VUs (10 pods * 50+ VUs each)
   metrics:
     # Scale based on CPU utilization
     - type: Resource
@@ -254,35 +254,35 @@ spec:
         name: cpu
         target:
           type: Utilization
-          averageUtilization: 70  # Scale when pods reach 70% CPU
+          averageUtilization: 70 # Scale when pods reach 70% CPU
     # Scale based on memory utilization
     - type: Resource
       resource:
         name: memory
         target:
           type: Utilization
-          averageUtilization: 80  # Scale when pods reach 80% memory
+          averageUtilization: 80 # Scale when pods reach 80% memory
   behavior:
     scaleUp:
-      stabilizationWindowSeconds: 60  # Wait 60s before scaling up
+      stabilizationWindowSeconds: 60 # Wait 60s before scaling up
       policies:
         - type: Percent
-          value: 50  # Scale up by 50% (add 1 pod if 2 exist)
+          value: 50 # Scale up by 50% (add 1 pod if 2 exist)
           periodSeconds: 60
         - type: Pods
-          value: 2   # Or add 2 pods at a time
+          value: 2 # Or add 2 pods at a time
           periodSeconds: 60
-      selectPolicy: Max  # Use the policy that scales faster
+      selectPolicy: Max # Use the policy that scales faster
     scaleDown:
-      stabilizationWindowSeconds: 300  # Wait 5 minutes before scaling down
+      stabilizationWindowSeconds: 300 # Wait 5 minutes before scaling down
       policies:
         - type: Percent
-          value: 25  # Scale down by 25% (remove 1 pod if 4 exist)
+          value: 25 # Scale down by 25% (remove 1 pod if 4 exist)
           periodSeconds: 60
         - type: Pods
-          value: 1   # Or remove 1 pod at a time
+          value: 1 # Or remove 1 pod at a time
           periodSeconds: 180
-      selectPolicy: Min  # Use the policy that scales slower
+      selectPolicy: Min # Use the policy that scales slower
 
 ---
 # Pod Disruption Budget - Ensure availability during updates
@@ -292,7 +292,7 @@ metadata:
   name: signal-harvester-api
   namespace: signal-harvester
 spec:
-  minAvailable: 1  # Always keep at least 1 pod running
+  minAvailable: 1 # Always keep at least 1 pod running
   selector:
     matchLabels:
       app: signal-harvester
@@ -361,8 +361,8 @@ metadata:
   namespace: signal-harvester
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    nginx.ingress.kubernetes.io/rate-limit: "100"  # 100 req/s per IP
-    nginx.ingress.kubernetes.io/limit-rps: "50"    # 50 req/s per connection
+    nginx.ingress.kubernetes.io/rate-limit: "100" # 100 req/s per IP
+    nginx.ingress.kubernetes.io/limit-rps: "50" # 50 req/s per connection
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
     nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "30"

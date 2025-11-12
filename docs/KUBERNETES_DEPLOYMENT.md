@@ -20,6 +20,7 @@ Complete guide for deploying Signal Harvester to a Kubernetes cluster with produ
 ### Required Tools
 
 1. **kubectl** (v1.25+)
+
    ```bash
    # macOS
    brew install kubectl
@@ -36,6 +37,7 @@ Complete guide for deploying Signal Harvester to a Kubernetes cluster with produ
    - Minimum: 3 nodes, 4 CPU cores, 8GB RAM per node
 
 3. **NGINX Ingress Controller**
+
    ```bash
    # Install with Helm
    helm upgrade --install ingress-nginx ingress-nginx \
@@ -47,11 +49,13 @@ Complete guide for deploying Signal Harvester to a Kubernetes cluster with produ
    ```
 
 4. **cert-manager** (for TLS certificates)
+
    ```bash
    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
    ```
 
 5. **Storage Class** (for persistent volumes)
+
    ```bash
    # Check available storage classes
    kubectl get storageclass
@@ -120,11 +124,13 @@ kubectl port-forward -n signal-harvester svc/prometheus 9090:9090
 ### Resource Requirements
 
 **Minimum Cluster Capacity:**
+
 - 3 nodes
 - Total: 8 CPU cores, 16GB RAM, 100GB storage
 - Per node: ~2.5 CPUs, ~5GB RAM, ~30GB storage
 
 **Production Recommendations:**
+
 - 5+ nodes for high availability
 - Node auto-scaling enabled
 - Regional distribution for redundancy
@@ -134,12 +140,14 @@ kubectl port-forward -n signal-harvester svc/prometheus 9090:9090
 ### Step 1: Prepare Configuration
 
 1. **Create .env file** with API keys:
+
    ```bash
    cp .env.example .env
    # Edit .env with your API keys
    ```
 
 2. **Update ingress hosts** in manifests:
+
    ```bash
    # Edit k8s/signal-harvester-api.yaml
    sed -i 's/api.signal-harvester.example.com/your-domain.com/g' k8s/signal-harvester-api.yaml
@@ -151,6 +159,7 @@ kubectl port-forward -n signal-harvester svc/prometheus 9090:9090
    ```
 
 3. **Configure Slack webhooks** for Alertmanager:
+
    ```bash
    # Edit monitoring/k8s/alertmanager.yaml
    # Replace placeholder URLs in the Secret resource
@@ -163,6 +172,7 @@ kubectl port-forward -n signal-harvester svc/prometheus 9090:9090
 ```
 
 The script will:
+
 1. ✅ Check prerequisites (kubectl, cluster connection, required files)
 2. ✅ Create namespace `signal-harvester`
 3. ✅ Create ConfigMaps from Prometheus/Grafana config files
@@ -262,15 +272,18 @@ spec:
 - **10 Replicas (max)**: ~3,000 VUs
 
 **Scale-Up Triggers:**
+
 - CPU > 70% for 60 seconds
 - Memory > 80% for 60 seconds
 - Can scale up by 50% per minute
 
 **Scale-Down Triggers:**
+
 - CPU < 70% and Memory < 80% for 300 seconds
 - Scales down by 1 pod per minute maximum
 
 **Monitor Scaling:**
+
 ```bash
 # Watch HPA status
 kubectl get hpa -n signal-harvester --watch
@@ -298,12 +311,14 @@ kubectl scale deployment signal-harvester-api -n signal-harvester --replicas=5
 ### Prometheus Configuration
 
 Prometheus automatically discovers and scrapes:
+
 - **API pods**: via Kubernetes service discovery
 - **Alertmanager**: static config
 - **Grafana**: static config
 - **Node exporters**: (if deployed separately)
 
 **View Targets:**
+
 ```bash
 kubectl port-forward -n signal-harvester svc/prometheus 9090:9090
 # Navigate to http://localhost:9090/targets
@@ -312,11 +327,13 @@ kubectl port-forward -n signal-harvester svc/prometheus 9090:9090
 ### Grafana Dashboards
 
 **Pre-configured dashboards** (import manually):
+
 1. `signal-harvester-overview.json` - API metrics, request rates, latency
 2. `discovery-pipeline.json` - Discovery pipeline metrics
 3. `kubernetes-pods.json` - Pod resource usage
 
 **Import Process:**
+
 1. Access Grafana: `kubectl port-forward -n signal-harvester svc/grafana 3000:3000`
 2. Login with admin credentials
 3. Navigate to Dashboards → Import
@@ -325,17 +342,20 @@ kubectl port-forward -n signal-harvester svc/prometheus 9090:9090
 ### Alertmanager Configuration
 
 **Default Alert Routing:**
+
 - **Critical alerts** → #signal-harvester-critical (immediate)
 - **Warning alerts** → #signal-harvester-alerts (grouped, 30s delay)
 - **Discovery alerts** → #signal-harvester-discovery
 - **LLM alerts** → #signal-harvester-llm
 
 **Update Slack Webhooks:**
+
 ```bash
 kubectl edit secret alertmanager-slack-urls -n signal-harvester
 ```
 
 **Test Alerts:**
+
 ```bash
 # Port forward to Alertmanager
 kubectl port-forward -n signal-harvester svc/alertmanager 9093:9093
@@ -351,10 +371,12 @@ kubectl port-forward -n signal-harvester svc/alertmanager 9093:9093
 The deployment includes NetworkPolicy resources that restrict traffic:
 
 **API Pod Network Policy:**
+
 - **Ingress**: Only from ingress-nginx and Prometheus
 - **Egress**: Only DNS (port 53) and HTTPS (port 443)
 
 **Verify Network Policies:**
+
 ```bash
 kubectl get networkpolicies -n signal-harvester
 kubectl describe networkpolicy signal-harvester-api -n signal-harvester
@@ -363,6 +385,7 @@ kubectl describe networkpolicy signal-harvester-api -n signal-harvester
 ### Pod Security
 
 **Security Context Configuration:**
+
 ```yaml
 securityContext:
   runAsNonRoot: true
@@ -378,10 +401,12 @@ securityContext:
 ### RBAC
 
 **Service Accounts:**
+
 - `signal-harvester-api`: Limited permissions for API pods
 - `prometheus`: ClusterRole for service discovery
 
 **View RBAC:**
+
 ```bash
 kubectl get serviceaccounts -n signal-harvester
 kubectl get clusterrole prometheus
@@ -391,6 +416,7 @@ kubectl get clusterrolebinding prometheus
 ### Secrets Management
 
 **API Keys stored in Secrets:**
+
 ```bash
 # View secrets (names only)
 kubectl get secrets -n signal-harvester
@@ -401,6 +427,7 @@ kubectl delete secret signal-harvester-api-keys -n signal-harvester
 ```
 
 **Secret Rotation:**
+
 1. Update API keys in .env file
 2. Delete existing secret: `kubectl delete secret signal-harvester-api-keys -n signal-harvester`
 3. Recreate secret: `./scripts/deploy-k8s.sh`
@@ -419,6 +446,7 @@ kubectl delete secret signal-harvester-api-keys -n signal-harvester
 ### Migration Steps
 
 1. **Backup Docker Compose Data:**
+
    ```bash
    # Backup database
    docker cp signal-harvester-api:/app/var/app.db ./backup/app.db
@@ -431,22 +459,26 @@ kubectl delete secret signal-harvester-api-keys -n signal-harvester
    ```
 
 2. **Stop Docker Compose Stack:**
+
    ```bash
    docker-compose -f docker-compose.monitoring.yml down
    ```
 
 3. **Prepare Database for K8s:**
+
    ```bash
    # Copy database to K8s persistent volume (after deployment)
    kubectl cp ./backup/app.db signal-harvester/POD_NAME:/app/var/app.db
    ```
 
 4. **Deploy to Kubernetes:**
+
    ```bash
    ./scripts/deploy-k8s.sh
    ```
 
 5. **Restore Data:**
+
    ```bash
    # Get API pod name
    API_POD=$(kubectl get pods -n signal-harvester -l app=signal-harvester-api -o jsonpath='{.items[0].metadata.name}')
@@ -459,6 +491,7 @@ kubectl delete secret signal-harvester-api-keys -n signal-harvester
    ```
 
 6. **Verify Migration:**
+
    ```bash
    # Check API health
    kubectl exec -n signal-harvester $API_POD -- curl http://localhost:8000/health
@@ -487,6 +520,7 @@ kubectl delete secret signal-harvester-api-keys -n signal-harvester
 **Symptoms:** Pod stuck in `Pending`, `CrashLoopBackOff`, or `Error` state
 
 **Diagnosis:**
+
 ```bash
 # Check pod status
 kubectl get pods -n signal-harvester
@@ -502,6 +536,7 @@ kubectl logs POD_NAME -n signal-harvester --previous  # Previous container
 **Common Causes:**
 
 1. **Insufficient Resources:**
+
    ```bash
    # Check node capacity
    kubectl describe nodes
@@ -513,6 +548,7 @@ kubectl logs POD_NAME -n signal-harvester --previous  # Previous container
    ```
 
 2. **PVC Not Bound:**
+
    ```bash
    # Check PVC status
    kubectl get pvc -n signal-harvester
@@ -525,6 +561,7 @@ kubectl logs POD_NAME -n signal-harvester --previous  # Previous container
    ```
 
 3. **Secret Not Found:**
+
    ```bash
    # Check secrets
    kubectl get secrets -n signal-harvester
@@ -535,6 +572,7 @@ kubectl logs POD_NAME -n signal-harvester --previous  # Previous container
    ```
 
 4. **Image Pull Errors:**
+
    ```bash
    # Check image pull status
    kubectl describe pod POD_NAME -n signal-harvester | grep -A5 "Events"
@@ -548,6 +586,7 @@ kubectl logs POD_NAME -n signal-harvester --previous  # Previous container
 **Symptoms:** Cannot access services via ingress hostname
 
 **Diagnosis:**
+
 ```bash
 # Check ingress status
 kubectl get ingress -n signal-harvester
@@ -562,6 +601,7 @@ kubectl logs -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx
 **Common Causes:**
 
 1. **DNS Not Configured:**
+
    ```bash
    # Get ingress IP
    kubectl get svc -n ingress-nginx ingress-nginx-controller
@@ -573,6 +613,7 @@ kubectl logs -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx
    ```
 
 2. **TLS Certificate Not Ready:**
+
    ```bash
    # Check certificate status
    kubectl get certificates -n signal-harvester
@@ -585,6 +626,7 @@ kubectl logs -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx
    ```
 
 3. **Ingress Controller Not Installed:**
+
    ```bash
    # Check for ingress controller
    kubectl get pods -n ingress-nginx
@@ -598,6 +640,7 @@ kubectl logs -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx
 **Symptoms:** API response times > 50ms (p95)
 
 **Diagnosis:**
+
 ```bash
 # Check pod metrics
 kubectl top pods -n signal-harvester
@@ -612,6 +655,7 @@ kubectl describe pod POD_NAME -n signal-harvester | grep -A10 "Resource Requests
 **Solutions:**
 
 1. **Increase Resource Limits:**
+
    ```bash
    # Edit deployment
    kubectl edit deployment signal-harvester-api -n signal-harvester
@@ -620,6 +664,7 @@ kubectl describe pod POD_NAME -n signal-harvester | grep -A10 "Resource Requests
    ```
 
 2. **Scale Horizontally:**
+
    ```bash
    # Manual scale
    kubectl scale deployment signal-harvester-api -n signal-harvester --replicas=5
@@ -630,6 +675,7 @@ kubectl describe pod POD_NAME -n signal-harvester | grep -A10 "Resource Requests
    ```
 
 3. **Check Database Performance:**
+
    ```bash
    # Execute into pod
    kubectl exec -it -n signal-harvester POD_NAME -- /bin/sh
@@ -643,6 +689,7 @@ kubectl describe pod POD_NAME -n signal-harvester | grep -A10 "Resource Requests
 **Symptoms:** HPA shows `<unknown>` for metrics or doesn't scale
 
 **Diagnosis:**
+
 ```bash
 # Check HPA status
 kubectl get hpa -n signal-harvester
@@ -658,6 +705,7 @@ kubectl top pods -n signal-harvester
 **Solutions:**
 
 1. **Install Metrics Server:**
+
    ```bash
    kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
    
@@ -667,6 +715,7 @@ kubectl top pods -n signal-harvester
    ```
 
 2. **Check Resource Requests:**
+
    ```bash
    # HPA requires resource requests to be set
    kubectl describe deployment signal-harvester-api -n signal-harvester | grep -A5 "Requests"
@@ -679,6 +728,7 @@ kubectl top pods -n signal-harvester
 **Symptoms:** Prometheus shows targets as DOWN
 
 **Diagnosis:**
+
 ```bash
 # Port forward to Prometheus
 kubectl port-forward -n signal-harvester svc/prometheus 9090:9090
@@ -693,6 +743,7 @@ kubectl logs -n signal-harvester -l app=prometheus
 **Solutions:**
 
 1. **Network Policy Blocking:**
+
    ```bash
    # Check network policies
    kubectl get networkpolicies -n signal-harvester
@@ -702,6 +753,7 @@ kubectl logs -n signal-harvester -l app=prometheus
    ```
 
 2. **Service Discovery Issues:**
+
    ```bash
    # Check Prometheus service discovery
    kubectl exec -n signal-harvester prometheus-POD-NAME -- cat /etc/prometheus/prometheus.yml
@@ -711,6 +763,7 @@ kubectl logs -n signal-harvester -l app=prometheus
    ```
 
 3. **RBAC Permissions:**
+
    ```bash
    # Check Prometheus ServiceAccount
    kubectl get serviceaccount prometheus -n signal-harvester
@@ -739,6 +792,7 @@ kubectl rollout undo deployment signal-harvester-api -n signal-harvester
 ### Backup Procedures
 
 **Database Backup:**
+
 ```bash
 # Automated backup script
 kubectl exec -n signal-harvester POD_NAME -- \
@@ -749,6 +803,7 @@ kubectl cp signal-harvester/POD_NAME:/app/var/app.db.backup ./backup/app-$(date 
 ```
 
 **Prometheus Backup:**
+
 ```bash
 # Create snapshot
 kubectl exec -n signal-harvester prometheus-POD-NAME -- \
@@ -800,6 +855,7 @@ kubectl delete namespace signal-harvester
 ### Based on Load Test Results
 
 **Baseline Performance (p95=11.58ms @ 100 VUs):**
+
 - Current resource requests are well-tuned
 - Each pod can handle 300+ VUs comfortably
 - 2 replicas can handle 600+ VUs

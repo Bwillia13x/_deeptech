@@ -11,12 +11,14 @@
 ### ✅ Task 1: Load Testing Baseline (Commit: 976bbfce)
 
 **Deliverables**:
+
 - k6 v1.4.0 installed via Homebrew
 - `scripts/load_test_simple_k6.js` (182 lines) - Comprehensive load test
 - `results/LOAD_TEST_BASELINE_REPORT.md` (314 lines) - Detailed analysis
 - Raw test results JSON with full metrics
 
 **Performance Results**:
+
 - **p95 Latency**: 11.58ms (98% better than 500ms SLA target)
 - **p99 Latency**: 39.17ms (96% better than 1000ms SLA target)
 - **Error Rate**: 0% on implemented endpoints (/health, /top)
@@ -25,6 +27,7 @@
 - **Total Requests**: 1,815 successful
 
 **Key Findings**:
+
 - API performs exceptionally well under load
 - /discoveries endpoint returns 500 (not implemented) - documented
 - Ready for production scaling
@@ -95,12 +98,14 @@ node-exporter        node-exporter:9100             up=1
 ```
 
 **Pre-configured Dashboards** (in `monitoring/grafana/`):
+
 1. `api-performance-dashboard.json` - Request rate, latency, errors
 2. `discovery-pipeline-dashboard.json` - Artifact processing metrics
 3. `llm-usage-dashboard.json` - LLM API calls, tokens, costs
 4. `system-resources-dashboard.json` - CPU, memory, disk, network
 
 **Alert Rules** (in `monitoring/prometheus/alerts.yml`):
+
 - HighErrorRate (>5% for 5m)
 - SlowResponseTime (p95 >5s for 5m)
 - HighRequestLatency (p99 >10s for 5m)
@@ -113,12 +118,14 @@ node-exporter        node-exporter:9100             up=1
 ## Current System State
 
 ### Repository
+
 - **Branch**: main
 - **Latest Commit**: 27743d57 (formatting improvements)
 - **Previous Commit**: 0be5d2e4 (monitoring stack deployment)
 - **Remote**: In sync with GitHub (Bwillia13x/_deeptech)
 
 ### Docker Services
+
 ```
 All 5 monitoring services running and healthy:
 - Prometheus: Up 48 minutes, scraping 5 targets
@@ -129,12 +136,14 @@ All 5 monitoring services running and healthy:
 ```
 
 ### Database
+
 - **Type**: SQLite
 - **Location**: var/app.db (780KB)
 - **Status**: Performing excellently (p95=11.58ms under load)
 - **Test Data**: 10+ signals from previous testing
 
 ### Files Modified (Auto-formatted)
+
 - `docker-compose.monitoring.yml` - Consistent YAML formatting
 - `monitoring/alertmanager.yml` - Quote style normalization
 - `docs/MONITORING_SETUP.md` - URL markdown formatting
@@ -146,23 +155,27 @@ All changes committed in 27743d57 (style: Auto-format monitoring stack configs)
 ## Issues Identified & Resolved
 
 ### 1. ❌ Node Exporter Volume Mount (Fixed)
+
 **Issue**: macOS Docker doesn't support `--path.rootfs=/host` with `/:/host:ro,rslave`  
 **Error**: `path / is mounted on / but it is not a shared or slave mount`  
 **Solution**: Disabled host filesystem mount, enabled specific collectors (cpu, meminfo, diskstats, netdev, loadavg)  
 **Impact**: Still collects essential system metrics, just not filesystem metrics
 
 ### 2. ❌ Alertmanager Slack Config (Fixed)
+
 **Issue**: `slack_api_url: '${SLACK_WEBHOOK_URL}'` syntax not supported by Alertmanager  
 **Error**: `unsupported scheme "" for URL` and `no global Slack API URL set`  
 **Solution**: Removed Slack configs for local development, documented production setup in MONITORING_SETUP.md  
 **Impact**: Alertmanager now starts successfully, alerts visible in UI, Slack integration documented for production
 
 ### 3. ⚠️ /discoveries Endpoint Not Implemented
+
 **Issue**: Load test shows 500 errors on /discoveries endpoint  
 **Status**: Documented in baseline report, not blocking  
 **Recommendation**: Implement endpoint or remove from load test in future
 
 ### 4. ℹ️ Grafana Database Lock Warning
+
 **Issue**: `Database locked, sleeping then retrying` on startup  
 **Status**: Normal SQLite behavior on concurrent access  
 **Impact**: None - resolves automatically
@@ -176,11 +189,13 @@ All changes committed in 27743d57 (style: Auto-format monitoring stack configs)
 **Objective**: Deploy monitoring stack and API to Kubernetes cluster
 
 **Existing Assets**:
+
 - `monitoring/k8s/prometheus.yaml` - Prometheus K8s manifest
 - `monitoring/k8s/grafana.yaml` - Grafana K8s manifest
 - K8s deployment configs for Signal Harvester API
 
 **Tasks**:
+
 1. **Review & Update K8s Manifests**
    - Update Prometheus config to use service discovery
    - Configure persistent volume claims for data retention
@@ -188,6 +203,7 @@ All changes committed in 27743d57 (style: Auto-format monitoring stack configs)
    - Add HorizontalPodAutoscaler (HPA) for API pods
 
 2. **Deploy to K8s Cluster**
+
    ```bash
    # Create namespace
    kubectl create namespace signal-harvester
@@ -225,6 +241,7 @@ All changes committed in 27743d57 (style: Auto-format monitoring stack configs)
    - Validate alert delivery
 
 **Expected Outcome**:
+
 - Signal Harvester running on Kubernetes
 - Monitoring stack collecting metrics from K8s pods
 - Autoscaling responding to load
@@ -235,8 +252,9 @@ All changes committed in 27743d57 (style: Auto-format monitoring stack configs)
 ### 🎯 Priority 2: Grafana Dashboard Configuration
 
 **Tasks**:
+
 1. **Import Pre-configured Dashboards**
-   - Login to Grafana (http://localhost:3000, admin/admin)
+   - Login to Grafana (<http://localhost:3000>, admin/admin)
    - Import 4 dashboard JSONs from `monitoring/grafana/`
    - Verify data flowing from Prometheus
 
@@ -255,7 +273,9 @@ All changes committed in 27743d57 (style: Auto-format monitoring stack configs)
 ### 🎯 Priority 3: Production Alerting Setup
 
 **Tasks**:
+
 1. **Create Slack Channels**
+
    ```
    #signal-harvester-critical   - Critical alerts (P0)
    #signal-harvester-alerts     - Warning alerts (P1)
@@ -278,6 +298,7 @@ All changes committed in 27743d57 (style: Auto-format monitoring stack configs)
 ### 🎯 Priority 4: Week 3 Planning - Advanced Scaling
 
 **Potential Tasks**:
+
 1. **Redis Integration**
    - Deploy Redis for caching and rate limiting
    - Implement cache-aside pattern for discoveries
@@ -303,6 +324,7 @@ All changes committed in 27743d57 (style: Auto-format monitoring stack configs)
 ## Quick Reference
 
 ### Access Monitoring Services
+
 ```bash
 # Grafana (visualization)
 open http://localhost:3000
@@ -322,6 +344,7 @@ curl http://localhost:8000/health
 ```
 
 ### Manage Monitoring Stack
+
 ```bash
 # Deploy
 ./scripts/deploy-monitoring-docker.sh
@@ -340,6 +363,7 @@ docker-compose -f docker-compose.monitoring.yml down -v
 ```
 
 ### Run Load Test
+
 ```bash
 k6 run scripts/load_test_simple_k6.js
 
@@ -363,7 +387,7 @@ k6 run --vus 200 --duration 5m scripts/load_test_simple_k6.js
 
 ## Contact & Support
 
-**Repository**: https://github.com/Bwillia13x/_deeptech  
+**Repository**: <https://github.com/Bwillia13x/_deeptech>  
 **Branch**: main  
 **Status**: All systems operational ✅
 
