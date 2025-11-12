@@ -1,0 +1,76 @@
+# Alertmanager Configuration
+
+global:
+  resolve_timeout: 5m
+  # Slack API URL - configure via environment variable in production
+  # For local development, configure per-receiver or leave empty
+
+# Template for alerts
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Route tree for alerts
+route:
+  receiver: 'default'
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  routes:
+    # Critical alerts - immediate notification
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 0s
+      repeat_interval: 1h
+
+    # Warning alerts - grouped notifications
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+      group_wait: 30s
+      repeat_interval: 4h
+
+    # Discovery pipeline alerts
+    - match:
+        component: discovery
+      receiver: 'discovery-alerts'
+
+    # LLM usage alerts
+    - match:
+        component: llm
+      receiver: 'llm-alerts'
+
+# Alert receivers
+receivers:
+  - name: 'default'
+    # Local development: logs alerts to console
+    # Production: configure Slack webhook in environment
+
+  - name: 'critical-alerts'
+    # Configure in production with Slack webhook URL
+
+  - name: 'warning-alerts'
+    # Configure in production with Slack webhook URL
+
+  - name: 'discovery-alerts'
+    # Configure in production with Slack webhook URL
+
+  - name: 'llm-alerts'
+    # Configure in production with Slack webhook URL
+
+# Inhibition rules - suppress certain alerts when others are firing
+inhibit_rules:
+  # Suppress warning alerts when critical alert is firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'cluster', 'service']
+
+  # Suppress high latency warnings when API is down
+  - source_match:
+      alertname: 'APIDown'
+    target_match_re:
+      alertname: '.*Latency.*'
+    equal: ['instance']

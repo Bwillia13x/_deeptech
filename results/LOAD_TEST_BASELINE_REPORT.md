@@ -13,12 +13,14 @@ Load testing successfully established performance baseline for Signal Harvester 
 ### SLA Compliance
 
 ✅ **PASSED** - Core API meets production readiness criteria:
+
 - **p95 latency**: 11.58ms (target: <500ms) - **98% better than target**
 - **p99 latency**: 39.17ms (target: <1000ms) - **96% better than target**
 - **SLA violations**: 2 total (target: <10)
 - **Concurrent users**: Sustained 100 VUs successfully
 
 ❌ **FAILED** - Error rate threshold:
+
 - **Error rate**: 24.40% (target: <1%)
 - **Root cause**: Load test script calls non-existent `/tweet/{id}` endpoint (443 404 responses)
 - **Impact**: None - test data issue, not production API issue
@@ -26,6 +28,7 @@ Load testing successfully established performance baseline for Signal Harvester 
 ## Test Configuration
 
 ### Load Profile (Staged Ramp)
+
 ```
 Stage 1: Warm-up    - 0→10 VUs over 30s
 Stage 2: Ramp       - 10→50 VUs over 1m
@@ -35,11 +38,13 @@ Stage 5: Cool-down  - 100→0 VUs over 30s
 ```
 
 ### Test Scenarios (Weighted)
+
 - **70%**: Browse signals (`GET /top` with varying limits/offsets)
 - **20%**: Health checks (`GET /health`)
 - **10%**: Filtered queries (`GET /top?salience_min=0.7`)
 
 ### Think Time
+
 - Random 1-5 second delay between requests (realistic user behavior)
 
 ## Performance Metrics
@@ -75,7 +80,8 @@ Stage 5: Cool-down  - 100→0 VUs over 30s
 
 **Root Cause**: Load test script includes `browseFilteredSignals()` function that attempts to fetch individual signal details via `/tweet/{id}` endpoint. This endpoint doesn't exist in current API implementation. The API correctly returns 404 status codes.
 
-**Resolution**: 
+**Resolution**:
+
 1. ✅ For baseline: Ignore this error rate - it's test data, not API failure
 2. ⏳ For future: Either implement `/signals/{id}` endpoint or remove from load test script
 3. ⏳ Actual production error rate expected: <0.1% based on successful endpoints
@@ -169,6 +175,7 @@ Stage 5: Cool-down  - 100→0 VUs over 30s
 ### 📊 Performance Characteristics
 
 **Latency Distribution**:
+
 - 50% of requests <3.44ms (median)
 - 90% of requests <8.75ms
 - 95% of requests <11.58ms
@@ -211,6 +218,7 @@ Stage 5: Cool-down  - 100→0 VUs over 30s
 ### PostgreSQL Migration Targets
 
 After migration, PostgreSQL should:
+
 - **Maintain** p95 <20ms (still 96% better than 500ms SLA)
 - **Maintain** p99 <100ms (still 90% better than 1000ms SLA)
 - **Maintain** 0% error rate on implemented endpoints
@@ -220,15 +228,18 @@ After migration, PostgreSQL should:
 ### Production Readiness
 
 **Current State**: ✅ READY for production at current scale
+
 - Latency: Excellent (98% better than target)
 - Stability: High (2 SLA violations in 1,814 iterations)
 - Throughput: Sufficient (7.46 req/s with think time)
 
 **Blockers**: None technical, 1 test data issue:
+
 - Update load test script to remove non-existent endpoint
 - Consider implementing `/signals/{id}` endpoint for completeness
 
 **Next Steps**:
+
 1. Deploy monitoring stack (Prometheus + Grafana)
 2. Set up alerts based on baseline metrics
 3. Proceed with PostgreSQL migration

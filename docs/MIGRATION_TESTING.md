@@ -43,6 +43,7 @@ sudo apt install postgresql-client-16  # Ubuntu
 ### Test Data
 
 Ensure you have:
+
 - Recent SQLite backup at `var/app.db`
 - PostgreSQL instance running and accessible
 - API server stopped (will be started with PostgreSQL config)
@@ -62,6 +63,7 @@ export HARVEST_API_KEY="your_api_key"
 ### Step 1: Provision PostgreSQL Instance
 
 **Local Development:**
+
 ```bash
 # Start PostgreSQL
 brew services start postgresql@16
@@ -77,6 +79,7 @@ EOF
 ```
 
 **Docker:**
+
 ```bash
 docker run -d \
   --name signal-harvester-test-db \
@@ -158,12 +161,14 @@ python scripts/test_migration.py \
 ```
 
 **Tests Included:**
+
 - Row count validation (all tables)
 - Data checksum validation (sample data)
 - Foreign key constraints
 - Index validation
 
 **Expected Output:**
+
 ```
 ================================================================================
 Test Suite: Data Integrity
@@ -201,6 +206,7 @@ python scripts/test_migration.py \
 ```
 
 **Tests Included:**
+
 - All data integrity tests
 - Query performance comparison
 - API health check
@@ -209,6 +215,7 @@ python scripts/test_migration.py \
 - Entities endpoint (if implemented)
 
 **Expected Output:**
+
 ```
 ================================================================================
 Test Suite: Data Integrity
@@ -270,12 +277,14 @@ python scripts/test_migration.py \
 ```
 
 **Performance Criteria:**
+
 - Discovery queries: <100ms p95 (PostgreSQL)
 - Topic queries: <50ms p95 (PostgreSQL)
 - PostgreSQL queries <10x SQLite baseline
 - Cache hit rate >70%
 
 **Expected Output:**
+
 ```
 ================================================================================
 Test Suite: Performance
@@ -393,17 +402,20 @@ curl http://localhost:8000/api/discoveries?limit=10
 ### Success Criteria
 
 **Data Integrity:**
+
 - ✅ All table row counts match between SQLite and PostgreSQL
 - ✅ Sample data checksums match
 - ✅ All foreign key constraints valid
 - ✅ All indexes exist (30+ expected)
 
 **Performance:**
+
 - ✅ Discovery queries <100ms p95
 - ✅ Topic queries <50ms p95
 - ✅ All queries <10x SQLite baseline
 
 **API Functionality:**
+
 - ✅ Health endpoint returns 200 OK
 - ✅ Discoveries endpoint returns results
 - ✅ Topics endpoint returns results
@@ -412,16 +424,19 @@ curl http://localhost:8000/api/discoveries?limit=10
 ### Warning Signs
 
 **Performance Issues:**
+
 - ⚠️ Queries 5-10x slower than SQLite → Investigate indexes
 - ⚠️ Queries >10x slower → Consider rollback
 - ⚠️ Increasing latency over time → Check connection pool
 
 **Data Issues:**
+
 - ⚠️ Row count mismatch <1% → Investigate specific rows
 - ⚠️ Row count mismatch >1% → Migration failed, rollback
 - ⚠️ Foreign key violations → Schema migration issue
 
 **API Issues:**
+
 - ⚠️ 500 errors → Check error logs, database connections
 - ⚠️ Timeouts → Increase query timeout or check performance
 - ⚠️ Connection refused → Check PostgreSQL is running
@@ -433,6 +448,7 @@ curl http://localhost:8000/api/discoveries?limit=10
 **Failure:** Row counts don't match
 
 **Diagnosis:**
+
 ```bash
 # Compare counts
 python -c "
@@ -457,6 +473,7 @@ for table in ['artifacts', 'topics', 'entities']:
 ```
 
 **Solution:**
+
 - If PostgreSQL has fewer rows: Re-run migration
 - If PostgreSQL has more rows: Check for duplicate data
 - If specific table mismatch: Check migration logs for that table
@@ -466,6 +483,7 @@ for table in ['artifacts', 'topics', 'entities']:
 **Failure:** Queries >10x slower on PostgreSQL
 
 **Diagnosis:**
+
 ```bash
 # Check query plans
 psql $DATABASE_URL -c "EXPLAIN ANALYZE SELECT * FROM artifacts ORDER BY discovery_score DESC LIMIT 100;"
@@ -478,6 +496,7 @@ psql $DATABASE_URL -c "ANALYZE;"
 ```
 
 **Solution:**
+
 - Run `ANALYZE` to update statistics
 - Check if indexes exist (should be 30+)
 - If still slow, review `EXPLAIN ANALYZE` output
@@ -488,6 +507,7 @@ psql $DATABASE_URL -c "ANALYZE;"
 **Failure:** API returns 500 errors
 
 **Diagnosis:**
+
 ```bash
 # Check API logs
 tail -50 logs/signal-harvester.log | grep ERROR
@@ -500,6 +520,7 @@ psql $DATABASE_URL -c "SELECT count(*) FROM pg_stat_activity WHERE datname = 'si
 ```
 
 **Solution:**
+
 - Review error logs for specific issues
 - Check DATABASE_URL is set correctly
 - Verify connection pool not exhausted
@@ -510,6 +531,7 @@ psql $DATABASE_URL -c "SELECT count(*) FROM pg_stat_activity WHERE datname = 'si
 Before approving PostgreSQL for production:
 
 ### Data Integrity
+
 - [ ] All table row counts match (100%)
 - [ ] Sample data checksums match
 - [ ] Foreign key constraints valid
@@ -517,6 +539,7 @@ Before approving PostgreSQL for production:
 - [ ] No data corruption detected
 
 ### Performance
+
 - [ ] Discovery queries <100ms p95
 - [ ] Topic queries <50ms p95
 - [ ] Timeline queries <200ms p95
@@ -524,6 +547,7 @@ Before approving PostgreSQL for production:
 - [ ] Connection pool handling concurrent requests
 
 ### API Functionality
+
 - [ ] Health endpoint returns 200 OK
 - [ ] All GET endpoints return results
 - [ ] All POST endpoints accept data
@@ -531,6 +555,7 @@ Before approving PostgreSQL for production:
 - [ ] Frontend loads and displays data
 
 ### Operational Readiness
+
 - [ ] Backup procedure tested and documented
 - [ ] Rollback procedure tested and documented
 - [ ] Monitoring dashboards configured
@@ -538,6 +563,7 @@ Before approving PostgreSQL for production:
 - [ ] On-call team trained on PostgreSQL troubleshooting
 
 ### Load Testing
+
 - [ ] 100 concurrent users handled
 - [ ] No connection pool exhaustion
 - [ ] No query timeouts under load
@@ -545,6 +571,7 @@ Before approving PostgreSQL for production:
 - [ ] Cache hit rate >70%
 
 ### Documentation
+
 - [ ] Migration procedure documented
 - [ ] Rollback procedure documented
 - [ ] PostgreSQL setup guide complete

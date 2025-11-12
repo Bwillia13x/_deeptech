@@ -68,7 +68,7 @@ psql --version
 
 **Option 1: PostgreSQL Installer**
 
-1. Download installer from https://www.postgresql.org/download/windows/
+1. Download installer from <https://www.postgresql.org/download/windows/>
 2. Run installer and follow wizard (default settings recommended)
 3. Remember the password you set for the `postgres` user
 4. Add PostgreSQL bin directory to PATH: `C:\Program Files\PostgreSQL\16\bin`
@@ -136,9 +136,11 @@ GRANT ALL ON SCHEMA public TO signal_harvester;
 ### Configure Authentication (pg_hba.conf)
 
 **macOS (Homebrew):**
+
 - Location: `/opt/homebrew/var/postgresql@16/pg_hba.conf`
 
 **Ubuntu/Debian:**
+
 - Location: `/etc/postgresql/16/main/pg_hba.conf`
 
 **Add this line for local development:**
@@ -172,16 +174,19 @@ postgresql://[user]:[password]@[host]:[port]/[database]
 ### Examples
 
 **Local development:**
+
 ```bash
 postgresql://signal_harvester:your_password@localhost:5432/signal_harvester
 ```
 
 **Docker:**
+
 ```bash
 postgresql://signal_harvester:changeme@localhost:5432/signal_harvester
 ```
 
 **Production (AWS RDS):**
+
 ```bash
 postgresql://signal_harvester:secure_pass@signal-harvester.abc123.us-east-1.rds.amazonaws.com:5432/signal_harvester
 ```
@@ -353,6 +358,7 @@ harvest topics                   # Show trending topics
 ### Connection Refused
 
 **Error:**
+
 ```
 psycopg2.OperationalError: connection to server at "localhost" (127.0.0.1), port 5432 failed: Connection refused
 ```
@@ -360,6 +366,7 @@ psycopg2.OperationalError: connection to server at "localhost" (127.0.0.1), port
 **Solutions:**
 
 1. Check if PostgreSQL is running:
+
    ```bash
    # macOS
    brew services list | grep postgresql
@@ -372,6 +379,7 @@ psycopg2.OperationalError: connection to server at "localhost" (127.0.0.1), port
    ```
 
 2. Verify port 5432 is listening:
+
    ```bash
    netstat -an | grep 5432
    # or
@@ -379,6 +387,7 @@ psycopg2.OperationalError: connection to server at "localhost" (127.0.0.1), port
    ```
 
 3. Check PostgreSQL logs:
+
    ```bash
    # macOS
    tail -f /opt/homebrew/var/log/postgresql@16.log
@@ -393,6 +402,7 @@ psycopg2.OperationalError: connection to server at "localhost" (127.0.0.1), port
 ### Authentication Failed
 
 **Error:**
+
 ```
 psycopg2.OperationalError: FATAL: password authentication failed for user "signal_harvester"
 ```
@@ -400,11 +410,13 @@ psycopg2.OperationalError: FATAL: password authentication failed for user "signa
 **Solutions:**
 
 1. Verify user exists:
+
    ```sql
    psql postgres -c "\du"
    ```
 
 2. Reset password:
+
    ```sql
    psql postgres
    ALTER USER signal_harvester WITH PASSWORD 'new_password';
@@ -413,6 +425,7 @@ psycopg2.OperationalError: FATAL: password authentication failed for user "signa
 3. Check `pg_hba.conf` has correct authentication method (md5 or scram-sha-256)
 
 4. Reload PostgreSQL configuration:
+
    ```bash
    psql postgres -c "SELECT pg_reload_conf();"
    ```
@@ -420,6 +433,7 @@ psycopg2.OperationalError: FATAL: password authentication failed for user "signa
 ### Database Does Not Exist
 
 **Error:**
+
 ```
 psycopg2.OperationalError: FATAL: database "signal_harvester" does not exist
 ```
@@ -433,6 +447,7 @@ psql postgres -c "CREATE DATABASE signal_harvester OWNER signal_harvester;"
 ### Permission Denied
 
 **Error:**
+
 ```
 psycopg2.ProgrammingError: permission denied for schema public
 ```
@@ -465,6 +480,7 @@ The migration script converts SQLite timestamps to PostgreSQL format. If you see
 ### Managed PostgreSQL Services
 
 **AWS RDS:**
+
 ```bash
 # Create RDS instance
 aws rds create-db-instance \
@@ -481,6 +497,7 @@ aws rds create-db-instance \
 ```
 
 **Google Cloud SQL:**
+
 ```bash
 gcloud sql instances create signal-harvester-prod \
   --database-version=POSTGRES_16 \
@@ -490,6 +507,7 @@ gcloud sql instances create signal-harvester-prod \
 ```
 
 **Azure Database for PostgreSQL:**
+
 ```bash
 az postgres flexible-server create \
   --resource-group signal-harvester-rg \

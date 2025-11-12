@@ -424,12 +424,14 @@ sqlite3 var/app.db "PRAGMA foreign_key_check;"
 **Situation**: Migration script fails midway through data transfer.
 
 **Action**:
+
 1. Do NOT switch config to PostgreSQL
 2. Keep using SQLite (no rollback needed)
 3. Fix migration script issues
 4. Retry migration
 
 **Commands**:
+
 ```bash
 # Check migration status
 python scripts/migrate_to_postgresql.py \
@@ -452,11 +454,13 @@ python scripts/migrate_to_postgresql.py \
 **Situation**: PostgreSQL queries 5x slower than SQLite after migration.
 
 **Action**:
+
 1. Check EXPLAIN plans and missing indexes
 2. Run ANALYZE to update statistics
 3. If unfixable within 4 hours → scheduled rollback
 
 **Commands**:
+
 ```bash
 # Check query plans
 psql $DATABASE_URL -c "EXPLAIN ANALYZE SELECT * FROM artifacts ORDER BY discovery_score DESC LIMIT 100;"
@@ -473,11 +477,13 @@ psql $DATABASE_URL -c "SELECT schemaname, tablename, indexname FROM pg_indexes W
 **Situation**: Artifacts missing or have incorrect values after migration.
 
 **Action**:
+
 1. IMMEDIATE rollback
 2. No data sync (PostgreSQL data suspect)
 3. Investigate corruption cause before retry
 
 **Commands**:
+
 ```bash
 # Emergency rollback (Steps 1-5 from above)
 # Skip data sync step
@@ -492,11 +498,13 @@ psql $DATABASE_URL -c "SELECT COUNT(*), SUM(id) FROM artifacts;"
 **Situation**: PostgreSQL max_connections exceeded, application cannot connect.
 
 **Action**:
+
 1. Try increasing pool size first
 2. If persistent → emergency rollback
 3. Review connection pooling configuration
 
 **Commands**:
+
 ```bash
 # Check active connections
 psql $DATABASE_URL -c "SELECT count(*) FROM pg_stat_activity;"
@@ -515,6 +523,7 @@ psql $DATABASE_URL -c "SELECT pg_reload_conf();"
 **Symptom**: `ERROR: No backup found!` during rollback
 
 **Solution**:
+
 ```bash
 # Check backup location
 ls -lh backups/
@@ -536,6 +545,7 @@ python scripts/migrate_to_postgresql.py \
 **Symptom**: `database is locked` error when restoring
 
 **Solution**:
+
 ```bash
 # Kill all processes using database
 lsof var/app.db | awk 'NR>1 {print $2}' | xargs kill -9
@@ -552,6 +562,7 @@ cp backups/latest.db var/app.db
 **Symptom**: Foreign key constraint failures after rollback
 
 **Solution**:
+
 ```bash
 # Check violations
 sqlite3 var/app.db "PRAGMA foreign_key_check;"
@@ -571,6 +582,7 @@ sqlite3 var/app.db "PRAGMA foreign_keys=ON;"
 **Symptom**: `alembic current` shows wrong version after rollback
 
 **Solution**:
+
 ```bash
 # Check current version
 alembic current
@@ -588,6 +600,7 @@ alembic current
 **Symptom**: Need to recover data but PostgreSQL backup missing
 
 **Solution**:
+
 ```bash
 # Create emergency backup from live PostgreSQL
 pg_dump $DATABASE_URL > backups/emergency_$(date +%Y%m%d_%H%M%S).sql

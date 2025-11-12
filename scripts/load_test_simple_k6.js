@@ -85,7 +85,7 @@ export function setup() {
     // Fetch some signal IDs for detail queries
     const headers = getHeaders();
     const res = http.get(`${API_BASE_URL}/top?limit=20`, { headers });
-    
+
     if (res.status === 200) {
         const signals = res.json();
         if (Array.isArray(signals)) {
@@ -175,7 +175,7 @@ function viewSignalDetail(headers, signalIds) {
 
 function checkHealth(headers) {
     const res = http.get(
-        `${API_BASE_URL}/health`, 
+        `${API_BASE_URL}/health`,
         { tags: { endpoint: 'health' } }
     );
 
