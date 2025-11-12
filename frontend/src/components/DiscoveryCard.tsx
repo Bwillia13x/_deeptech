@@ -1,0 +1,213 @@
+import React, { useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { 
+  ExternalLink, 
+  ChevronDown, 
+  ChevronUp, 
+  Calendar, 
+  Tag, 
+  Users
+} from "lucide-react";
+import { Discovery } from "../types/api";
+import { ScoreBadge } from "./ScoreBadge";
+import { EntityChip } from "./EntityChip";
+import { formatDistanceToNow, parseISO } from "date-fns";
+import { cn } from "../lib/utils";
+
+interface DiscoveryCardProps {
+  discovery: Discovery;
+  showDetails?: boolean;
+}
+
+export function DiscoveryCard({ discovery, showDetails = true }: DiscoveryCardProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const getSourceIcon = (source: string) => {
+    switch (source) {
+      case "arxiv":
+        return <FileText className="h-4 w-4" />;
+      case "github":
+        return <GitBranch className="h-4 w-4" />;
+      case "x":
+        return <Twitter className="h-4 w-4" />;
+      default:
+        return <ExternalLink className="h-4 w-4" />;
+    }
+  };
+
+  const getSourceColor = (source: string) => {
+    switch (source) {
+      case "arxiv":
+        return "bg-red-100 text-red-800 hover:bg-red-200";
+      case "github":
+        return "bg-gray-100 text-gray-800 hover:bg-gray-200";
+      case "x":
+        return "bg-sky-100 text-sky-800 hover:bg-sky-200";
+      default:
+        return "bg-blue-100 text-blue-800 hover:bg-blue-200";
+    }
+  };
+
+  const getTypeLabel = (type: string) => {
+    switch (type) {
+      case "preprint":
+        return "Preprint";
+      case "paper":
+        return "Paper";
+      case "repo":
+        return "Repository";
+      case "release":
+        return "Release";
+      case "tweet":
+        return "Tweet";
+      case "post":
+        return "Post";
+      default:
+        return type;
+    }
+  };
+
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return "Unknown date";
+    try {
+      return formatDistanceToNow(parseISO(dateString), { addSuffix: true });
+    } catch {
+      return dateString;
+    }
+  };
+
+  const truncateText = (text: string, maxLength: number) => {
+    if (text.length <= maxLength) return text;
+    return text.slice(0, maxLength) + "...";
+  };
+
+  const getScoreColor = (score: number) => {
+    if (score >= 85) return "text-green-600";
+    if (score >= 70) return "text-yellow-600";
+    return "text-orange-600";
+  };
+
+  return (
+    <Card className="hover:shadow-lg transition-shadow">
+      <CardHeader className="pb-3">
+        <div className="flex justify-between items-start gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-2">
+              <Badge variant="secondary" className={getSourceColor(discovery.source)}>
+                {getSourceIcon(discovery.source)}
+                <span className="ml-1">{getTypeLabel(discovery.type)}</span>
+              </Badge>
+              <ScoreBadge score={discovery.discoveryScore} size="lg" />
+            </div>
+            <CardTitle className="text-xl mb-2 line-clamp-2">
+              {discovery.title || "Untitled Discovery"}
+            </CardTitle>
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div className="flex items-center gap-1">
+                <Calendar className="h-3 w-3" />
+                {formatDate(discovery.publishedAt)}
+              </div>
+              {discovery.authorEntityIds && (
+                <div className="flex items-center gap-1">
+                  <Users className="h-3 w-3" />
+                  <span>{JSON.parse(discovery.authorEntityIds).length} authors</span>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            {discovery.url && (
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => window.open(discovery.url, '_blank')}
+              >
+                <ExternalLink className="h-4 w-4 mr-1" />
+                View
+              </Button>
+            )}
+            {showDetails && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsExpanded(!isExpanded)}
+              >
+                {isExpanded ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent>
+        {/* Summary */}
+        <p className="text-muted-foreground mb-4">
+          {isExpanded ? discovery.text : truncateText(discovery.text || "", 250)}
+        </p>
+
+        {/* Score Breakdown */}
+        <div className="grid grid-cols-3 gap-4 mb-4 p-3 bg-muted rounded-lg">
+          <div className="text-center">
+            <div className={cn("text-2xl font-bold", getScoreColor(discovery.novelty))}>
+              {discovery.novelty.toFixed(1)}
+            </div>
+            <div className="text-xs text-muted-foreground">Novelty</div>
+          </div>
+          <div className="text-center">
+            <div className={cn("text-2xl font-bold", getScoreColor(discovery.emergence))}>
+              {discovery.emergence.toFixed(1)}
+            </div>
+            <div className="text-xs text-muted-foreground">Emergence</div>
+          </div>
+          <div className="text-center">
+            <div className={cn("text-2xl font-bold", getScoreColor(discovery.obscurity))}>
+              {discovery.obscurity.toFixed(1)}
+            </div>
+            <div className="text-xs text-muted-foreground">Obscurity</div>
+          </div>
+        </div>
+
+        {/* Expanded Details */}
+        {isExpanded && showDetails && (
+          <div className="space-y-4 pt-4 border-t">
+            {/* Entities */}
+            {discovery.authorEntityIds && JSON.parse(discovery.authorEntityIds).length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">Authors & Affiliations</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {JSON.parse(discovery.authorEntityIds).map((entityId: string) => (
+                    <EntityChip key={entityId} entityId={entityId} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Metadata */}
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Source ID:</span>{" "}
+                <code className="text-xs">{discovery.sourceId}</code>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Computed:</span>{" "}
+                {formatDate(discovery.computedAt)}
+              </div>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// Import missing icons
+import { FileText, GitBranch, Twitter } from "lucide-react";

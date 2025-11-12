@@ -1,0 +1,184 @@
+import React, { useState } from "react";
+import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Tag, X, Search } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { getTrendingTopics } from "../../api/discoveries";
+
+interface TopicFilterProps {
+  selectedTopic?: string;
+  onTopicSelect: (topic: string | undefined) => void;
+}
+
+// Common research topics for quick selection
+const COMMON_TOPICS = [
+  "quantum computing",
+  "machine learning",
+  "artificial intelligence",
+  "robotics",
+  "computer vision",
+  "natural language processing",
+  "deep learning",
+  "reinforcement learning",
+  "optimization",
+  "algorithms",
+  "protein folding",
+  "photonics",
+  "nanotechnology",
+  "materials science",
+  "energy storage",
+];
+
+export function TopicFilter({ selectedTopic, onTopicSelect }: TopicFilterProps) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showDropdown, setShowDropdown] = useState(false);
+
+  const { data: trendingTopics } = useQuery({
+    queryKey: ["trending-topics"],
+    queryFn: () => getTrendingTopics({ limit: 20 }),
+  });
+
+  const handleSelectTopic = (topic: string) => {
+    onTopicSelect(topic);
+    setShowDropdown(false);
+    setSearchQuery("");
+  };
+
+  const handleClearTopic = () => {
+    onTopicSelect(undefined);
+    setSearchQuery("");
+  };
+
+  const filteredTopics = [
+    ...(trendingTopics?.slice(0, 5).map(t => t.name) || []),
+    ...COMMON_TOPICS,
+  ]
+    .filter((topic, index, self) => self.indexOf(topic) === index) // Remove duplicates
+    .filter((topic) =>
+      topic.toLowerCase().includes(searchQuery.toLowerCase()) &&
+      topic !== selectedTopic
+    )
+    .slice(0, 10);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <Tag className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-medium">Topic Filter</span>
+        {selectedTopic && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleClearTopic}
+            className="h-6 px-2"
+          >
+            <X className="h-3 w-3 mr-1" />
+            Clear
+          </Button>
+        )}
+      </div>
+
+      {selectedTopic ? (
+        <div className="flex items-center gap-2">
+          <Badge
+            variant="secondary"
+            className="cursor-pointer hover:bg-secondary/80"
+            onClick={handleClearTopic}
+          >
+            <X className="h-3 w-3 mr-1" />
+            {selectedTopic}
+          </Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowDropdown(!showDropdown)}
+          >
+            <Search className="h-3 w-3 mr-1" />
+            Change
+          </Button>
+        </div>
+      ) : (
+        <Button
+          variant="outline"
+          className="w-full justify-start"
+          onClick={() => setShowDropdown(!showDropdown)}
+        >
+          <Search className="h-4 w-4 mr-2" />
+          Select a topic to filter...
+        </Button>
+      )}
+
+      {showDropdown && (
+        <div className="border rounded-lg p-2 bg-background shadow-lg">
+          <Input
+            placeholder="Search topics..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="mb-2"
+            autoFocus
+          />
+          <div className="max-h-60 overflow-y-auto space-y-1">
+            {filteredTopics.length === 0 ? (
+              <div className="text-sm text-muted-foreground p-2">No topics found</div>
+            ) : (
+              filteredTopics.map((topic) => (
+                <div
+                  key={topic}
+                  className="flex items-center justify-between px-2 py-1.5 rounded hover:bg-muted cursor-pointer text-sm"
+                  onClick={() => handleSelectTopic(topic)}
+                >
+                  <span>{topic}</span>
+                  {trendingTopics?.some(t => t.name === topic) && (
+                    <Badge variant="secondary" className="ml-2">
+                      Trending
+                    </Badge>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Topic cloud component for visualization
+interface TopicCloudProps {
+  topics: { name: string; count: number }[];
+  maxWords?: number;
+  onTopicClick?: (topic: string) => void;
+}
+
+export function TopicCloud({ topics, maxWords = 30, onTopicClick }: TopicCloudProps) {
+  const maxCount = Math.max(...topics.map((t) => t.count));
+  const minCount = Math.min(...topics.map((t) => t.count));
+  const range = maxCount - minCount || 1;
+
+  const getFontSize = (count: number) => {
+    const normalized = (count - minCount) / range;
+    const minSize = 0.75; // rem
+    const maxSize = 2; // rem
+    return `${minSize + normalized * (maxSize - minSize)}rem`;
+  };
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {topics.slice(0, maxWords).map((topic) => (
+        <Badge
+          key={topic.name}
+          variant="outline"
+          className="cursor-pointer hover:bg-secondary"
+          style={{ fontSize: getFontSize(topic.count) }}
+          onClick={() => onTopicClick?.(topic.name)}
+        >
+          {topic.name}
+          <span className="ml-1 text-xs text-muted-foreground">
+            ({topic.count})
+          </span>
+        </Badge>
+      ))}
+    </div>
+  );
+}

@@ -5,7 +5,7 @@ import os
 import re
 import time
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import httpx
 
@@ -276,3 +276,233 @@ def get_llm_client(provider: Optional[str], model: Optional[str], temperature: f
     # Placeholder for other providers like Ollama
     log.warning("Unknown LLM provider '%s'; using DummyAnalyzer", provider)
     return DummyAnalyzer()
+
+
+class LLMClient:
+    """Async wrapper for LLM analyzers to support chat interface."""
+    
+    def __init__(self, provider: str, model: str | None = None, temperature: float = 0.2):
+        normalized_provider = (provider or "dummy").lower().strip()
+        self.analyzer = get_llm_client(normalized_provider, model, temperature)
+        self.provider = normalized_provider
+        self.model = model
+        self.temperature = temperature
+    
+    async def _chat_openai(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float,
+        max_tokens: int = 1024,
+    ) -> tuple[str, dict[str, Any]]:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY not set")
+        model = self.model or os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
+        base_url = os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        # Prefer JSON responses for easier parsing when supported
+        payload["response_format"] = {"type": "json_object"}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{base_url.rstrip('/')}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            # Retry without forcing JSON formatting for older models
+            if exc.response.status_code == 400 and "response_format" in payload:
+                payload.pop("response_format")
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(
+                        f"{base_url.rstrip('/')}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                    )
+                response.raise_for_status()
+            else:
+                raise
+        data = response.json()
+        choices = data.get("choices") or []
+        if not choices:
+            raise RuntimeError("OpenAI response contained no choices")
+        content = choices[0].get("message", {}).get("content", "")
+        return content, data
+    
+    async def _chat_anthropic(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float,
+        max_tokens: int = 1024,
+    ) -> tuple[str, dict[str, Any]]:
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise RuntimeError("ANTHROPIC_API_KEY not set")
+        model = self.model or os.getenv("ANTHROPIC_MODEL") or "claude-3-5-haiku-latest"
+        base_url = os.getenv("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
+        url = f"{base_url.rstrip('/')}/v1/messages"
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        system_message = None
+        converted_messages: list[dict[str, Any]] = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "system":
+                system_message = content
+                continue
+            anthropic_role = role if role in {"user", "assistant"} else "user"
+            converted_messages.append(
+                {
+                    "role": anthropic_role,
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": content,
+                        }
+                    ],
+                }
+            )
+        if not converted_messages:
+            raise RuntimeError("Anthropic chat requires at least one user message")
+        payload: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": converted_messages,
+        }
+        if system_message:
+            payload["system"] = system_message
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        content_blocks = data.get("content") or []
+        text_content = "".join(
+            block.get("text", "") for block in content_blocks if block.get("type") == "text"
+        )
+        # Normalize to OpenAI-like structure for downstream consumers
+        normalized = {
+            "id": data.get("id"),
+            "model": data.get("model"),
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": text_content,
+                    }
+                }
+            ],
+            "raw_response": data,
+        }
+        return text_content, normalized
+    
+    async def chat(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+    ) -> dict[str, Any] | None:
+        """Async chat interface for LLM."""
+        temp = temperature if temperature is not None else self.temperature
+        try:
+            if self.provider == "openai":
+                content, _ = await self._chat_openai(messages, temp)
+                return {"content": content}
+            if self.provider == "anthropic":
+                content, _ = await self._chat_anthropic(messages, temp)
+                return {"content": content}
+        except Exception as exc:
+            log.error("Error in LLM chat via provider '%s': %s", self.provider, exc)
+        try:
+            # Extract the last user/system messages for fallback analysis
+            user_message = ""
+            system_message = ""
+            for msg in messages:
+                if msg.get("role") == "user":
+                    user_message = msg.get("content", "")
+                elif msg.get("role") == "system":
+                    system_message = msg.get("content", "")
+            full_prompt = f"{system_message}\n\n{user_message}" if system_message else user_message
+            analysis = self.analyzer.analyze_text(full_prompt)
+            return {
+                "content": json.dumps(
+                    {
+                        "category": analysis.category,
+                        "sentiment": analysis.sentiment,
+                        "urgency": analysis.urgency,
+                        "tags": analysis.tags or [],
+                        "reasoning": analysis.reasoning or "",
+                    }
+                )
+            }
+        except Exception as e:  # pragma: no cover - defensive fallback
+            log.error("Error in LLM fallback analysis: %s", e)
+            return None
+    
+    async def chat_completion(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        max_tokens: int = 1024,
+    ) -> dict[str, Any]:
+        """Provider-compatible chat completion response."""
+        temp = temperature if temperature is not None else self.temperature
+        if self.provider == "openai":
+            _, raw = await self._chat_openai(messages, temp, max_tokens=max_tokens)
+            return raw
+        if self.provider == "anthropic":
+            _, raw = await self._chat_anthropic(messages, temp, max_tokens=max_tokens)
+            return raw
+        # Fallback for dummy and unsupported providers
+        fallback = await self.chat(messages, temperature=temp)
+        content = fallback.get("content") if fallback else ""
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": content or "",
+                    }
+                }
+            ]
+        }
+    
+    async def analyze_artifact(self, title: str, text: str, source: str = "") -> dict[str, Any] | None:
+        """Analyze a research artifact."""
+        try:
+            # Combine title and text
+            full_text = f"{title}\n\n{text}" if title and text else (title or text)
+            
+            if not full_text.strip():
+                return None
+            
+            analysis = self.analyzer.analyze_text(full_text)
+            
+            return {
+                "category": analysis.category,
+                "sentiment": analysis.sentiment,
+                "urgency": analysis.urgency,
+                "tags": analysis.tags or [],
+                "reasoning": analysis.reasoning or ""
+            }
+        except Exception as e:
+            log.error("Error analyzing artifact: %s", e)
+            return None
+
+
+def get_async_llm_client(provider: str, model: str | None = None, temperature: float = 0.2) -> LLMClient:
+    """Get async LLM client wrapper."""
+    return LLMClient(provider, model, temperature)

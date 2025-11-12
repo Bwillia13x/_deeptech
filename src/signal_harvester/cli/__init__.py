@@ -1,7 +1,21 @@
 """CLI commands for Signal Harvester."""
 
 # These imports register CLI commands with the app via decorators
-from . import data_commands, pipeline_commands, snapshot_commands  # noqa: F401
+from . import (  # noqa: F401
+    backup_cli,
+    db_commands,
+    data_commands,
+    discovery_commands,
+    pipeline_commands,
+    researcher_commands,  # Phase 2.3
+    snapshot_commands,
+)
 from .core import app
 
-__all__ = ["app"]
+
+def main() -> None:
+    """Console entry point for the Signal Harvester CLI."""
+    app()
+
+
+__all__ = ["app", "main"]

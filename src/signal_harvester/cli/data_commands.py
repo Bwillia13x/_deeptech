@@ -82,7 +82,7 @@ def stats(ctx: typer.Context) -> None:
     s = load_settings(config_path)
     
     import sqlite3
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
     
     conn = sqlite3.connect(s.app.database_path)
     
@@ -93,7 +93,7 @@ def stats(ctx: typer.Context) -> None:
     notified = conn.execute("SELECT COUNT(*) FROM tweets WHERE notified_at IS NOT NULL").fetchone()[0]
     
     # Recent activity
-    day_ago = (datetime.utcnow() - timedelta(hours=24)).isoformat() + "Z"
+    day_ago = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat().replace("+00:00", "Z")
     recent = conn.execute("SELECT COUNT(*) FROM tweets WHERE created_at > ?", (day_ago,)).fetchone()[0]
     
     conn.close()

@@ -1,5 +1,9 @@
 # Signal Harvester - Backup and Restore Procedures
 
+> This guide is part of the maintained documentation set for Signal Harvester.
+> For overall architecture, readiness status, and roadmap, refer to [`signal-harvester/ARCHITECTURE_AND_READINESS.md`](signal-harvester/ARCHITECTURE_AND_READINESS.md:1).
+> To verify system health and consistency (including migrations and tests), from the `signal-harvester` directory run `make verify-all` (see [`signal-harvester/Makefile`](signal-harvester/Makefile:7)).
+
 ## 📋 Overview
 
 This document describes backup and restore procedures for the Signal Harvester system, including database, snapshots, and configuration files.

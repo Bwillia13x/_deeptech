@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: signal-harvester-config
+data:
+  ENVIRONMENT: "staging"
+  LOG_LEVEL: "DEBUG"
+  API_WORKERS: "2"
+  DISCOVERY_INTERVAL_HOURS: "12" # More frequent for testing

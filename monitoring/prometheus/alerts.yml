@@ -1,0 +1,311 @@
+# Prometheus Alerting Rules for Signal Harvester
+
+groups:
+  - name: signal_harvester_api
+    interval: 30s
+    rules:
+      # High error rate
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m])) by (instance)
+            /
+            sum(rate(http_requests_total[5m])) by (instance)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "High HTTP error rate (instance {{ $labels.instance }})"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+      # Slow response time
+      - alert: SlowResponseTime
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, endpoint)
+          ) > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "Slow API response time (endpoint {{ $labels.endpoint }})"
+          description: "95th percentile response time is {{ $value }}s (threshold: 5s)"
+
+      # High request latency
+      - alert: HighRequestLatency
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+          ) > 10
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "High request latency"
+          description: "99th percentile latency is {{ $value }}s (threshold: 10s)"
+
+      # API down
+      - alert: APIDown
+        expr: up{job="signal-harvester"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "Signal Harvester API is down (instance {{ $labels.instance }})"
+          description: "API instance has been down for more than 2 minutes"
+
+      # Too many requests in progress
+      - alert: HighConcurrentRequests
+        expr: sum(http_requests_in_progress) by (instance) > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High number of concurrent requests (instance {{ $labels.instance }})"
+          description: "{{ $value }} concurrent requests (threshold: 100)"
+
+  - name: signal_harvester_database
+    interval: 30s
+    rules:
+      # Database size growing rapidly
+      - alert: DatabaseSizeGrowingRapidly
+        expr: |
+          (
+            db_size_bytes - db_size_bytes offset 1h
+          ) > 1e9  # 1GB growth in 1 hour
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Database growing rapidly"
+          description: "Database grew by {{ $value | humanize }}B in the last hour"
+
+      # Database too large
+      - alert: DatabaseTooLarge
+        expr: db_size_bytes > 50e9 # 50GB
+        for: 10m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Database size exceeds threshold"
+          description: "Database size is {{ $value | humanize }}B (threshold: 50GB)"
+
+      # Slow database queries
+      - alert: SlowDatabaseQueries
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(db_query_duration_seconds_bucket[5m])) by (le, query_type)
+          ) > 1
+        for: 10m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Slow database queries (type {{ $labels.query_type }})"
+          description: "95th percentile query time is {{ $value }}s (threshold: 1s)"
+
+  - name: signal_harvester_pipeline
+    interval: 60s
+    rules:
+      # Pipeline failures
+      - alert: PipelineFailures
+        expr: |
+          (
+            sum(rate(pipeline_errors_total[30m])) by (pipeline_type)
+            /
+            sum(rate(pipeline_runs_total[30m])) by (pipeline_type)
+          ) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: pipeline
+        annotations:
+          summary: "High pipeline failure rate ({{ $labels.pipeline_type }})"
+          description: "Failure rate is {{ $value | humanizePercentage }} (threshold: 10%)"
+
+      # Pipeline not running
+      - alert: PipelineNotRunning
+        expr: |
+          time() - pipeline_runs_total{pipeline_type="discovery"} > 90000  # 25 hours
+        for: 1h
+        labels:
+          severity: warning
+          component: pipeline
+        annotations:
+          summary: "Discovery pipeline has not run recently"
+          description: "Pipeline last ran {{ $value | humanizeDuration }} ago"
+
+      # Slow pipeline execution
+      - alert: SlowPipelineExecution
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(pipeline_run_duration_seconds_bucket[1h])) by (le, pipeline_type)
+          ) > 3600  # 1 hour
+        for: 30m
+        labels:
+          severity: warning
+          component: pipeline
+        annotations:
+          summary: "Slow pipeline execution ({{ $labels.pipeline_type }})"
+          description: "95th percentile execution time is {{ $value | humanizeDuration }}"
+
+  - name: signal_harvester_llm
+    interval: 60s
+    rules:
+      # High LLM error rate
+      - alert: HighLLMErrorRate
+        expr: |
+          (
+            sum(rate(llm_errors_total[10m])) by (provider)
+            /
+            sum(rate(llm_requests_total[10m])) by (provider)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: llm
+        annotations:
+          summary: "High LLM error rate ({{ $labels.provider }})"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%)"
+
+      # High LLM latency
+      - alert: HighLLMLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(llm_request_duration_seconds_bucket[10m])) by (le, provider, model)
+          ) > 30
+        for: 10m
+        labels:
+          severity: warning
+          component: llm
+        annotations:
+          summary: "High LLM latency ({{ $labels.provider }}/{{ $labels.model }})"
+          description: "95th percentile latency is {{ $value }}s (threshold: 30s)"
+
+      # High token usage
+      - alert: HighTokenUsage
+        expr: |
+          sum(rate(llm_tokens_total[1h])) by (provider) > 1e6  # 1M tokens/hour
+        for: 30m
+        labels:
+          severity: info
+          component: llm
+        annotations:
+          summary: "High token usage ({{ $labels.provider }})"
+          description: "Using {{ $value | humanize }} tokens/hour (threshold: 1M)"
+
+  - name: signal_harvester_cache
+    interval: 60s
+    rules:
+      # Low cache hit rate
+      - alert: LowCacheHitRate
+        expr: |
+          (
+            sum(rate(cache_hits_total[10m])) by (cache_type)
+            /
+            (
+              sum(rate(cache_hits_total[10m])) by (cache_type)
+              +
+              sum(rate(cache_misses_total[10m])) by (cache_type)
+            )
+          ) < 0.5
+        for: 30m
+        labels:
+          severity: info
+          component: cache
+        annotations:
+          summary: "Low cache hit rate ({{ $labels.cache_type }})"
+          description: "Hit rate is {{ $value | humanizePercentage }} (threshold: 50%)"
+
+      # Cache size too large
+      - alert: CacheSizeTooLarge
+        expr: cache_size{cache_type="embedding"} > 100000
+        for: 10m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Cache size exceeds threshold ({{ $labels.cache_type }})"
+          description: "Cache has {{ $value }} items (threshold: 100k)"
+
+  - name: signal_harvester_resources
+    interval: 30s
+    rules:
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            container_memory_usage_bytes{pod=~".*signal-harvester.*"}
+            /
+            container_spec_memory_limit_bytes{pod=~".*signal-harvester.*"}
+          ) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          component: resources
+        annotations:
+          summary: "High memory usage (pod {{ $labels.pod }})"
+          description: "Memory usage is {{ $value | humanizePercentage }} (threshold: 90%)"
+
+      # High CPU usage
+      - alert: HighCPUUsage
+        expr: |
+          (
+            rate(container_cpu_usage_seconds_total{pod=~".*signal-harvester.*"}[5m])
+            /
+            container_spec_cpu_quota{pod=~".*signal-harvester.*"}
+          ) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          component: resources
+        annotations:
+          summary: "High CPU usage (pod {{ $labels.pod }})"
+          description: "CPU usage is {{ $value | humanizePercentage }} (threshold: 90%)"
+
+      # Pod restart loop
+      - alert: PodRestartingFrequently
+        expr: |
+          rate(kube_pod_container_status_restarts_total{pod=~".*signal-harvester.*"}[15m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          component: resources
+        annotations:
+          summary: "Pod restarting frequently (pod {{ $labels.pod }})"
+          description: "Pod has restarted {{ $value }} times in the last 15 minutes"
+
+  - name: signal_harvester_discoveries
+    interval: 120s
+    rules:
+      # No discoveries fetched recently
+      - alert: NoDiscoveriesFetched
+        expr: |
+          sum(increase(discoveries_fetched_total[2h])) == 0
+        for: 30m
+        labels:
+          severity: warning
+          component: discovery
+        annotations:
+          summary: "No discoveries fetched in the last 2 hours"
+          description: "Check discovery pipeline and source configurations"
+
+      # Discovery fetch failing for specific source
+      - alert: DiscoverySourceFailing
+        expr: |
+          sum(increase(discoveries_fetched_total{source="arxiv"}[2h])) == 0
+        for: 1h
+        labels:
+          severity: warning
+          component: discovery
+        annotations:
+          summary: "No discoveries from {{ $labels.source }} in 2 hours"
+          description: "Check {{ $labels.source }} API connectivity and credentials"

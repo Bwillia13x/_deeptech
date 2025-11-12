@@ -68,6 +68,103 @@ export type SnapshotsListParams = {
   signalId?: string;
 };
 
+// Phase One: Deep Tech Discovery Types
+
+export type ArtifactType = "preprint" | "paper" | "repo" | "release" | "tweet" | "post";
+export type ArtifactSource = "arxiv" | "github" | "x" | "crossref" | "semantic";
+export type EntityType = "person" | "lab" | "org";
+
+export type Entity = {
+  id: ID;
+  type: EntityType;
+  name: string;
+  description?: string;
+  homepageUrl?: string;
+  createdAt: string;
+  updatedAt?: string;
+  accounts?: Account[];
+};
+
+export type Account = {
+  id: ID;
+  entityId: ID;
+  platform: string;
+  handleOrId: string;
+  url?: string;
+  confidence: number;
+  createdAt: string;
+};
+
+export type Topic = {
+  id: ID;
+  name: string;
+  taxonomyPath?: string;
+  description?: string;
+  createdAt: string;
+};
+
+export type Artifact = {
+  id: ID;
+  type: ArtifactType;
+  source: ArtifactSource;
+  sourceId: string;
+  title?: string;
+  text?: string;
+  url?: string;
+  publishedAt?: string;
+  authorEntityIds?: string; // JSON array
+  rawJson?: string;
+  createdAt: string;
+  updatedAt?: string;
+  // Joined fields
+  novelty?: number;
+  emergence?: number;
+  obscurity?: number;
+  discoveryScore?: number;
+  computedAt?: string;
+};
+
+export type Discovery = Artifact & {
+  novelty: number;
+  emergence: number;
+  obscurity: number;
+  discoveryScore: number;
+  computedAt: string;
+};
+
+export type DiscoveriesListParams = {
+  minScore?: number;
+  hours?: number;
+  limit?: number;
+  topic?: string;
+  source?: ArtifactSource;
+  sort?: "discoveryScore" | "publishedAt" | "novelty" | "emergence" | "obscurity";
+  order?: "asc" | "desc";
+};
+
+export type TrendingTopic = Topic & {
+  artifactCount: number;
+  avgDiscoveryScore: number;
+};
+
+export type TrendingTopicsParams = {
+  windowDays?: number;
+  limit?: number;
+  minArtifactCount?: number;
+};
+
+export type RefreshParams = {
+  type?: "discovery" | "all";
+  sources?: string[];
+  limit?: number;
+};
+
+export type TopicTimelinePoint = {
+  date: string; // ISO date string
+  count: number;
+  avgScore: number;
+};
+
 export type ApiErrorData = {
   message?: string;
   code?: string;

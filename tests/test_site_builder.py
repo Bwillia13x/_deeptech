@@ -6,9 +6,9 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 
-from signal_harvester.xscore_utils import urljoin
 from signal_harvester.site import build_all
 from signal_harvester.snapshot import rotate_snapshot
+from signal_harvester.xscore_utils import urljoin
 
 
 class TestSiteBuilder(unittest.TestCase):

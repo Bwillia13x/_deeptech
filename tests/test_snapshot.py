@@ -4,10 +4,10 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
-from signal_harvester.snapshot import rotate_snapshot
 from signal_harvester.site import build_all, existing_snapshots
+from signal_harvester.snapshot import rotate_snapshot
 
 
 class TestSnapshot(unittest.TestCase):
@@ -25,7 +25,9 @@ class TestSnapshot(unittest.TestCase):
 
     def test_rotation_outputs_and_diffs(self):
         day1 = datetime(2025, 1, 1, tzinfo=timezone.utc)
-        rows1 = [{"tweet_id": "1", "text": "Test tweet 1", "overall": 0.6}]
+        rows1 = [
+            {"tweet_id": "1", "text": "Test tweet 1", "overall": 0.6},
+        ]
         src1 = os.path.join(self.base, "in1.json")
         self._write_src(rows1, src1)
 
@@ -42,7 +44,16 @@ class TestSnapshot(unittest.TestCase):
         )
         self.assertTrue(os.path.isdir(out1))
         files1 = os.listdir(out1)
-        for expected in ["data.json", "data.json.gz", "data.ndjson", "data.ndjson.gz", "data.csv", "data.csv.gz", "schema.json", "checksums.json"]:
+        for expected in [
+            "data.json",
+            "data.json.gz",
+            "data.ndjson",
+            "data.ndjson.gz",
+            "data.csv",
+            "data.csv.gz",
+            "schema.json",
+            "checksums.json",
+        ]:
             self.assertIn(expected, files1)
 
         with open(os.path.join(out1, "checksums.json"), "r", encoding="utf-8") as f:
@@ -51,7 +62,18 @@ class TestSnapshot(unittest.TestCase):
         self.assertIn("data.json", paths)
 
         day2 = day1 + timedelta(days=1)
-        rows2 = [{"tweet_id": "1", "text": "Test tweet 1 updated", "overall": 0.9}, {"tweet_id": "2", "text": "Test tweet 2", "overall": 0.5}]
+        rows2 = [
+            {
+                "tweet_id": "1",
+                "text": "Test tweet 1 updated",
+                "overall": 0.9,
+            },
+            {
+                "tweet_id": "2",
+                "text": "Test tweet 2",
+                "overall": 0.5,
+            },
+        ]
         src2 = os.path.join(self.base, "in2.json")
         self._write_src(rows2, src2)
 
@@ -78,7 +100,12 @@ class TestSnapshot(unittest.TestCase):
         # Create two snapshots then build site
         day1 = datetime(2025, 2, 1, tzinfo=timezone.utc)
         day2 = day1 + timedelta(days=1)
-        rows = [{"tweet_id": "1", "text": "Test tweet"}]
+        rows = [
+            {
+                "tweet_id": "1",
+                "text": "Test tweet",
+            }
+        ]
         for i, day in enumerate([day1, day2], 1):
             src = os.path.join(self.base, f"in{i}.json")
             self._write_src(rows, src)

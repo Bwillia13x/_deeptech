@@ -1,0 +1,199 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signal-harvester
+  namespace: signal-harvester
+  labels:
+    app.kubernetes.io/name: signal-harvester
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: signal-harvester
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: signal-harvester
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: signal-harvester
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: signal-harvester
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: signal-harvester
+      initContainers:
+        # Initialize database and run migrations
+        - name: init-db
+          image: ghcr.io/bwillia13x/signal-harvester:latest
+          imagePullPolicy: Always
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              harvest init-db
+              alembic upgrade head
+          envFrom:
+            - configMapRef:
+                name: signal-harvester-config
+            - secretRef:
+                name: signal-harvester-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+      containers:
+        - name: api
+          image: ghcr.io/bwillia13x/signal-harvester:latest
+          imagePullPolicy: Always
+          command: ["uvicorn"]
+          args:
+            - "signal_harvester.api:app"
+            - "--host=0.0.0.0"
+            - "--port=8000"
+            - "--workers=4"
+            - "--log-level=info"
+            - "--access-log"
+            - "--proxy-headers"
+            - "--forwarded-allow-ips=*"
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: signal-harvester-config
+            - secretRef:
+                name: signal-harvester-secrets
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: logs
+              mountPath: /logs
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 4Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+              scheme: HTTP
+            initialDelaySeconds: 0
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false # Set to true if you mount /tmp as tmpfs
+
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: signal-harvester-data
+        - name: logs
+          persistentVolumeClaim:
+            claimName: signal-harvester-logs
+
+      securityContext:
+        fsGroup: 1000
+        runAsNonRoot: true
+
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/component
+                      operator: In
+                      values:
+                        - api
+                topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: signal-harvester-service
+  namespace: signal-harvester
+  labels:
+    app.kubernetes.io/name: signal-harvester
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: signal-harvester
+    app.kubernetes.io/component: api
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: signal-harvester
+  namespace: signal-harvester
+  labels:
+    app.kubernetes.io/name: signal-harvester

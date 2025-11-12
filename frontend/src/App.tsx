@@ -9,6 +9,8 @@ import Snapshots from "./pages/Snapshots";
 import SnapshotDetail from "./pages/SnapshotDetail";
 import SignalForm from "./pages/SignalForm";
 import Settings from "./pages/Settings";
+import Discoveries from "./pages/Discoveries";
+import AnalyticsDashboard from "./pages/AnalyticsDashboard";
 import NotFound from "./pages/NotFound";
 import Onboarding, { useOnboarding } from "./components/Onboarding";
 
@@ -21,6 +23,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/analytics" element={<AnalyticsDashboard />} />
+          <Route path="/discoveries" element={<Discoveries />} />
           <Route path="/signals" element={<Signals />} />
           <Route path="/signals/new" element={<SignalForm />} />
           <Route path="/signals/:id/edit" element={<SignalForm />} />

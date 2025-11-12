@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: signal-harvester-production
+
+bases:
+  - ../../base
+
+namePrefix: prod-
+
+commonLabels:
+  environment: production
+  app.kubernetes.io/instance: production
+
+patchesStrategicMerge:
+  - deployment-patch.yaml
+  - configmap-patch.yaml
+  - ingress-patch.yaml
+  - autoscaling-patch.yaml
+
+images:
+  - name: ghcr.io/bwillia13x/signal-harvester
+    # Tag will be set by CI/CD from git tag (e.g., v1.2.3)
+    newTag: v1.0.0
+
+replicas:
+  - name: signal-harvester
+    count: 3 # Higher replica count for production

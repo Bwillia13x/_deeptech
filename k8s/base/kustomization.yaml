@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: signal-harvester
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secrets.yaml
+  - pvc.yaml
+  - redis.yaml
+  - deployment.yaml
+  - cronjob.yaml
+  - ingress.yaml
+  - autoscaling.yaml
+
+commonLabels:
+  app.kubernetes.io/name: signal-harvester
+  app.kubernetes.io/managed-by: kustomize
+
+images:
+  - name: ghcr.io/bwillia13x/signal-harvester
+    newTag: latest

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from fastapi.testclient import TestClient
 
 from signal_harvester.api import create_app

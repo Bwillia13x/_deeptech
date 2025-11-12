@@ -4,11 +4,12 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
+from signal_harvester.retain import apply_retain, compute_retain_plan, parse_duration
+from signal_harvester.retain import main as retain_main
 from signal_harvester.snapshot import rotate_snapshot
 from signal_harvester.stats import compute_stats
-from signal_harvester.retain import parse_duration, compute_retain_plan, apply_retain, main as retain_main
 
 
 class TestRetain(unittest.TestCase):
@@ -27,7 +28,17 @@ class TestRetain(unittest.TestCase):
     def _make_snapshots(self, base_url: str):
         # Create three daily snapshots 2025-03-01, 02, 03
         day1 = datetime(2025, 3, 1, tzinfo=timezone.utc)
-        rows1 = [{"username": "a", "user_id": "1", "overall": 0.6, "letter_grade": "B", "followers_count": 100, "tweet_count": 10, "score_created_at": "2025-03-01T00:00:00Z"}]
+        rows1 = [
+            {
+                "username": "a",
+                "user_id": "1",
+                "overall": 0.6,
+                "letter_grade": "B",
+                "followers_count": 100,
+                "tweet_count": 10,
+                "score_created_at": "2025-03-01T00:00:00Z",
+            }
+        ]
         src1 = os.path.join(self.base, "in1.json")
         self._write_src(rows1, src1)
         rotate_snapshot(
@@ -46,7 +57,17 @@ class TestRetain(unittest.TestCase):
         )
 
         day2 = day1 + timedelta(days=1)
-        rows2 = [{"username": "b", "user_id": "2", "overall": 0.8, "letter_grade": "A", "followers_count": 200, "tweet_count": 20, "score_created_at": "2025-03-02T00:00:00Z"}]
+        rows2 = [
+            {
+                "username": "b",
+                "user_id": "2",
+                "overall": 0.8,
+                "letter_grade": "A",
+                "followers_count": 200,
+                "tweet_count": 20,
+                "score_created_at": "2025-03-02T00:00:00Z",
+            }
+        ]
         src2 = os.path.join(self.base, "in2.json")
         self._write_src(rows2, src2)
         rotate_snapshot(
@@ -67,7 +88,17 @@ class TestRetain(unittest.TestCase):
         )
 
         day3 = day2 + timedelta(days=1)
-        rows3 = [{"username": "c", "user_id": "3", "overall": 0.3, "letter_grade": "C", "followers_count": 50, "tweet_count": 5, "score_created_at": "2025-03-03T00:00:00Z"}]
+        rows3 = [
+            {
+                "username": "c",
+                "user_id": "3",
+                "overall": 0.3,
+                "letter_grade": "C",
+                "followers_count": 50,
+                "tweet_count": 5,
+                "score_created_at": "2025-03-03T00:00:00Z",
+            }
+        ]
         src3 = os.path.join(self.base, "in3.json")
         self._write_src(rows3, src3)
         rotate_snapshot(
@@ -103,7 +134,17 @@ class TestRetain(unittest.TestCase):
             base_t + timedelta(days=2, hours=2),
         ]
         for i, dt in enumerate(dts):
-            rows = [{"username": f"user{i}", "user_id": str(i), "overall": 0.5, "letter_grade": "B", "followers_count": 100 + i, "tweet_count": 10 + i, "score_created_at": dt.isoformat()}]
+            rows = [
+                {
+                    "username": f"user{i}",
+                    "user_id": str(i),
+                    "overall": 0.5,
+                    "letter_grade": "B",
+                    "followers_count": 100 + i,
+                    "tweet_count": 10 + i,
+                    "score_created_at": dt.isoformat(),
+                }
+            ]
             src = os.path.join(self.base, f"cal{i}.json")
             self._write_src(rows, src)
             rotate_snapshot(
@@ -188,7 +229,6 @@ class TestRetain(unittest.TestCase):
         self.assertEqual(len(res["removed"]), 0)
 
     def test_calendar_gfs_retention_non_contiguous(self):
-        base_url = "https://example.test/snapshots"
         # Create daily snapshots across multiple days
         #  - 2025-03-01, 2025-03-02, 2025-03-03, 2025-03-04, 2025-03-05
         base_t = datetime(2025, 3, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -200,7 +240,17 @@ class TestRetain(unittest.TestCase):
             base_t + timedelta(days=4),
         ]
         for i, dt in enumerate(dts):
-            rows = [{"username": f"user{i}", "user_id": str(i), "overall": 0.5, "letter_grade": "B", "followers_count": 100 + i, "tweet_count": 10 + i, "score_created_at": dt.isoformat()}]
+            rows = [
+                {
+                    "username": f"user{i}",
+                    "user_id": str(i),
+                    "overall": 0.5,
+                    "letter_grade": "B",
+                    "followers_count": 100 + i,
+                    "tweet_count": 10 + i,
+                    "score_created_at": dt.isoformat(),
+                }
+            ]
             src = os.path.join(self.base, f"cal{i}.json")
             self._write_src(rows, src)
             rotate_snapshot(

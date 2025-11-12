@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -17,7 +17,7 @@ class JSONFormatter(logging.Formatter):
     
     def format(self, record: logging.LogRecord) -> str:
         log_obj = {
-            "timestamp": datetime.now().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -31,7 +31,7 @@ class JSONFormatter(logging.Formatter):
         
         # Add extra fields if present
         if hasattr(record, "extra_fields"):
-            log_obj.update(record.extra_fields)
+            log_obj.update(record.extra_fields)  # type: ignore[attr-defined]
         
         return json.dumps(log_obj)
 

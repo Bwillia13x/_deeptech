@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 import tempfile
 
-from signal_harvester.db import init_db, upsert_tweet, update_analysis, update_salience, list_for_notification
-from signal_harvester.notifier import SlackNotifier, notify_high_salience
+from signal_harvester.db import init_db, list_for_notification, update_analysis, update_salience, upsert_tweet
+from signal_harvester.notifier import SlackNotifier
 
 
 def seed(db_path: str, tid: str = "t1") -> None:

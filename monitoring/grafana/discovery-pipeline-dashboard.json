@@ -1,0 +1,401 @@
+{
+    "dashboard": {
+        "title": "Signal Harvester - Discovery Pipeline",
+        "tags": [
+            "signal-harvester",
+            "discovery",
+            "pipeline"
+        ],
+        "timezone": "browser",
+        "schemaVersion": 36,
+        "version": 1,
+        "refresh": "1m",
+        "time": {
+            "from": "now-24h",
+            "to": "now"
+        },
+        "panels": [
+            {
+                "id": 1,
+                "title": "Discoveries by Source",
+                "type": "graph",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 0
+                },
+                "targets": [
+                    {
+                        "expr": "sum(rate(discoveries_by_source[1h])) by (source)",
+                        "legendFormat": "{{source}}",
+                        "refId": "A"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "short",
+                        "label": "Discoveries/hour"
+                    },
+                    {
+                        "format": "short"
+                    }
+                ],
+                "stack": true
+            },
+            {
+                "id": 2,
+                "title": "Discovery Fetch Duration by Source",
+                "type": "graph",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 0
+                },
+                "targets": [
+                    {
+                        "expr": "histogram_quantile(0.95, sum(rate(discoveries_fetch_duration_seconds_bucket[5m])) by (le, source))",
+                        "legendFormat": "{{source}} (p95)",
+                        "refId": "A"
+                    },
+                    {
+                        "expr": "histogram_quantile(0.50, sum(rate(discoveries_fetch_duration_seconds_bucket[5m])) by (le, source))",
+                        "legendFormat": "{{source}} (p50)",
+                        "refId": "B"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "s",
+                        "label": "Duration"
+                    },
+                    {
+                        "format": "short"
+                    }
+                ]
+            },
+            {
+                "id": 3,
+                "title": "Pipeline Run Success Rate",
+                "type": "graph",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 8
+                },
+                "targets": [
+                    {
+                        "expr": "sum(rate(pipeline_runs_total{status=\"success\"}[1h])) / sum(rate(pipeline_runs_total[1h])) * 100",
+                        "legendFormat": "Success Rate",
+                        "refId": "A"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "percent",
+                        "label": "Success %",
+                        "max": 100,
+                        "min": 0
+                    },
+                    {
+                        "format": "short"
+                    }
+                ],
+                "thresholds": [
+                    {
+                        "value": 95,
+                        "colorMode": "critical",
+                        "op": "lt",
+                        "fill": true,
+                        "line": true
+                    }
+                ]
+            },
+            {
+                "id": 4,
+                "title": "Pipeline Run Duration",
+                "type": "graph",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 8
+                },
+                "targets": [
+                    {
+                        "expr": "histogram_quantile(0.95, sum(rate(pipeline_run_duration_seconds_bucket[5m])) by (le))",
+                        "legendFormat": "p95",
+                        "refId": "A"
+                    },
+                    {
+                        "expr": "histogram_quantile(0.50, sum(rate(pipeline_run_duration_seconds_bucket[5m])) by (le))",
+                        "legendFormat": "p50",
+                        "refId": "B"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "s",
+                        "label": "Duration"
+                    },
+                    {
+                        "format": "short"
+                    }
+                ]
+            },
+            {
+                "id": 5,
+                "title": "Topic Evolution",
+                "type": "graph",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 16
+                },
+                "targets": [
+                    {
+                        "expr": "topics_active",
+                        "legendFormat": "Active Topics",
+                        "refId": "A"
+                    },
+                    {
+                        "expr": "rate(topics_total[1h])",
+                        "legendFormat": "New Topics/hour",
+                        "refId": "B"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "short",
+                        "label": "Count"
+                    },
+                    {
+                        "format": "short"
+                    }
+                ]
+            },
+            {
+                "id": 6,
+                "title": "Topic-Artifact Coverage",
+                "type": "gauge",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 16
+                },
+                "targets": [
+                    {
+                        "expr": "topic_artifacts_total / discoveries_total * 100",
+                        "refId": "A"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percent",
+                        "min": 0,
+                        "max": 100,
+                        "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                                {
+                                    "color": "red",
+                                    "value": null
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 70
+                                },
+                                {
+                                    "color": "green",
+                                    "value": 95
+                                }
+                            ]
+                        }
+                    }
+                },
+                "options": {
+                    "showThresholdLabels": true,
+                    "showThresholdMarkers": true
+                }
+            },
+            {
+                "id": 7,
+                "title": "Entity Resolution Activity",
+                "type": "graph",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 24
+                },
+                "targets": [
+                    {
+                        "expr": "sum(rate(entity_resolutions_total[1h]))",
+                        "legendFormat": "Resolutions/hour",
+                        "refId": "A"
+                    },
+                    {
+                        "expr": "sum(rate(entity_merges_total[1h]))",
+                        "legendFormat": "Merges/hour",
+                        "refId": "B"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "short",
+                        "label": "Count/hour"
+                    },
+                    {
+                        "format": "short"
+                    }
+                ]
+            },
+            {
+                "id": 8,
+                "title": "Cross-Source Relationships",
+                "type": "graph",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 24
+                },
+                "targets": [
+                    {
+                        "expr": "sum(rate(artifact_relationships_total[1h])) by (relationship_type)",
+                        "legendFormat": "{{relationship_type}}",
+                        "refId": "A"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "short",
+                        "label": "Relationships/hour"
+                    },
+                    {
+                        "format": "short"
+                    }
+                ],
+                "stack": true
+            },
+            {
+                "id": 9,
+                "title": "Pipeline Errors",
+                "type": "stat",
+                "gridPos": {
+                    "h": 4,
+                    "w": 8,
+                    "x": 0,
+                    "y": 32
+                },
+                "targets": [
+                    {
+                        "expr": "sum(increase(pipeline_errors_total[24h]))",
+                        "refId": "A"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "short",
+                        "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": null
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 10
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 50
+                                }
+                            ]
+                        }
+                    }
+                },
+                "options": {
+                    "graphMode": "area",
+                    "colorMode": "background"
+                }
+            },
+            {
+                "id": 10,
+                "title": "Last Pipeline Run",
+                "type": "stat",
+                "gridPos": {
+                    "h": 4,
+                    "w": 8,
+                    "x": 8,
+                    "y": 32
+                },
+                "targets": [
+                    {
+                        "expr": "(time() - pipeline_last_run_timestamp_seconds) / 3600",
+                        "refId": "A"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "h",
+                        "decimals": 1,
+                        "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": null
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 24
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 48
+                                }
+                            ]
+                        }
+                    }
+                },
+                "options": {
+                    "graphMode": "none",
+                    "colorMode": "background"
+                }
+            },
+            {
+                "id": 11,
+                "title": "Embedding Generation Rate",
+                "type": "stat",
+                "gridPos": {
+                    "h": 4,
+                    "w": 8,
+                    "x": 16,
+                    "y": 32
+                },
+                "targets": [
+                    {
+                        "expr": "sum(rate(embeddings_generated_total[1h]))",
+                        "refId": "A"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "short",
+                        "decimals": 0
+                    }
+                },
+                "options": {
+                    "graphMode": "area",
+                    "colorMode": "value"
+                }
+            }
+        ]
+    }
+}

@@ -1,5 +1,9 @@
 # Signal Harvester - API Client Examples
 
+> This guide is part of the maintained documentation set for Signal Harvester.
+> For the live architecture/readiness view and roadmap, see [`signal-harvester/ARCHITECTURE_AND_READINESS.md`](signal-harvester/ARCHITECTURE_AND_READINESS.md:1).
+> To confirm the system passes its integrated checks, from the `signal-harvester` directory run `make verify-all` (see [`signal-harvester/Makefile`](signal-harvester/Makefile:7)).
+
 ## Overview
 
 The Signal Harvester API provides programmatic access to all functionality. This guide includes examples in Python and JavaScript/Node.js.

@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: signal-harvester-ingress
+spec:
+  tls:
+    - hosts:
+        - staging.signal-harvester.example.com
+      secretName: staging-signal-harvester-tls
+  rules:
+    - host: staging.signal-harvester.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: signal-harvester-service
+                port:
+                  number: 80

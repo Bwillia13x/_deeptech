@@ -1,0 +1,498 @@
+{
+    "dashboard": {
+        "title": "Signal Harvester - System Resources",
+        "tags": [
+            "signal-harvester",
+            "infrastructure",
+            "resources"
+        ],
+        "timezone": "browser",
+        "schemaVersion": 36,
+        "version": 1,
+        "refresh": "30s",
+        "time": {
+            "from": "now-3h",
+            "to": "now"
+        },
+        "panels": [
+            {
+                "id": 1,
+                "title": "CPU Usage",
+                "type": "graph",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 0
+                },
+                "targets": [
+                    {
+                        "expr": "rate(process_cpu_seconds_total[5m]) * 100",
+                        "legendFormat": "CPU %",
+                        "refId": "A"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "percent",
+                        "label": "CPU %",
+                        "max": 100,
+                        "min": 0
+                    },
+                    {
+                        "format": "short"
+                    }
+                ],
+                "thresholds": [
+                    {
+                        "value": 90,
+                        "colorMode": "critical",
+                        "op": "gt",
+                        "fill": true,
+                        "line": true
+                    }
+                ]
+            },
+            {
+                "id": 2,
+                "title": "Memory Usage",
+                "type": "graph",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 0
+                },
+                "targets": [
+                    {
+                        "expr": "process_resident_memory_bytes",
+                        "legendFormat": "RSS Memory",
+                        "refId": "A"
+                    },
+                    {
+                        "expr": "process_virtual_memory_bytes",
+                        "legendFormat": "Virtual Memory",
+                        "refId": "B"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "bytes",
+                        "label": "Memory"
+                    },
+                    {
+                        "format": "short"
+                    }
+                ]
+            },
+            {
+                "id": 3,
+                "title": "Database Size Growth",
+                "type": "graph",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 8
+                },
+                "targets": [
+                    {
+                        "expr": "db_size_bytes",
+                        "legendFormat": "Database Size",
+                        "refId": "A"
+                    },
+                    {
+                        "expr": "deriv(db_size_bytes[1h])",
+                        "legendFormat": "Growth Rate (bytes/sec)",
+                        "refId": "B"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "bytes",
+                        "label": "Size"
+                    },
+                    {
+                        "format": "Bps",
+                        "label": "Growth Rate"
+                    }
+                ],
+                "seriesOverrides": [
+                    {
+                        "alias": "Growth Rate (bytes/sec)",
+                        "yaxis": 2
+                    }
+                ]
+            },
+            {
+                "id": 4,
+                "title": "Database Connections",
+                "type": "graph",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 8
+                },
+                "targets": [
+                    {
+                        "expr": "db_connections_active",
+                        "legendFormat": "Active Connections",
+                        "refId": "A"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "short",
+                        "label": "Connections"
+                    },
+                    {
+                        "format": "short"
+                    }
+                ]
+            },
+            {
+                "id": 5,
+                "title": "Cache Performance",
+                "type": "graph",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 16
+                },
+                "targets": [
+                    {
+                        "expr": "sum(rate(cache_hits_total[5m]))",
+                        "legendFormat": "Hits/sec",
+                        "refId": "A"
+                    },
+                    {
+                        "expr": "sum(rate(cache_misses_total[5m]))",
+                        "legendFormat": "Misses/sec",
+                        "refId": "B"
+                    },
+                    {
+                        "expr": "sum(rate(cache_evictions_total[5m]))",
+                        "legendFormat": "Evictions/sec",
+                        "refId": "C"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "ops",
+                        "label": "Operations/sec"
+                    },
+                    {
+                        "format": "short"
+                    }
+                ]
+            },
+            {
+                "id": 6,
+                "title": "Cache Size",
+                "type": "graph",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 16
+                },
+                "targets": [
+                    {
+                        "expr": "cache_size_items",
+                        "legendFormat": "Items in Cache",
+                        "refId": "A"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "short",
+                        "label": "Items"
+                    },
+                    {
+                        "format": "short"
+                    }
+                ],
+                "thresholds": [
+                    {
+                        "value": 100000,
+                        "colorMode": "critical",
+                        "op": "gt",
+                        "fill": false,
+                        "line": true
+                    }
+                ]
+            },
+            {
+                "id": 7,
+                "title": "Pod Restarts",
+                "type": "graph",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 24
+                },
+                "targets": [
+                    {
+                        "expr": "rate(kube_pod_container_status_restarts_total{namespace=\"signal-harvester\"}[15m])",
+                        "legendFormat": "{{pod}}",
+                        "refId": "A"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "short",
+                        "label": "Restarts/15min"
+                    },
+                    {
+                        "format": "short"
+                    }
+                ],
+                "alert": {
+                    "conditions": [
+                        {
+                            "evaluator": {
+                                "params": [
+                                    0.1
+                                ],
+                                "type": "gt"
+                            },
+                            "operator": {
+                                "type": "and"
+                            },
+                            "query": {
+                                "params": [
+                                    "A",
+                                    "15m",
+                                    "now"
+                                ]
+                            },
+                            "reducer": {
+                                "params": [],
+                                "type": "avg"
+                            },
+                            "type": "query"
+                        }
+                    ],
+                    "frequency": "5m",
+                    "handler": 1,
+                    "name": "Pod Restarting Frequently",
+                    "noDataState": "no_data"
+                }
+            },
+            {
+                "id": 8,
+                "title": "Open File Descriptors",
+                "type": "graph",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 24
+                },
+                "targets": [
+                    {
+                        "expr": "process_open_fds",
+                        "legendFormat": "Open FDs",
+                        "refId": "A"
+                    },
+                    {
+                        "expr": "process_max_fds",
+                        "legendFormat": "Max FDs",
+                        "refId": "B"
+                    }
+                ],
+                "yaxes": [
+                    {
+                        "format": "short",
+                        "label": "File Descriptors"
+                    },
+                    {
+                        "format": "short"
+                    }
+                ]
+            },
+            {
+                "id": 9,
+                "title": "Current CPU %",
+                "type": "gauge",
+                "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 0,
+                    "y": 32
+                },
+                "targets": [
+                    {
+                        "expr": "rate(process_cpu_seconds_total[1m]) * 100",
+                        "refId": "A"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percent",
+                        "min": 0,
+                        "max": 100,
+                        "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": null
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 70
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 90
+                                }
+                            ]
+                        }
+                    }
+                },
+                "options": {
+                    "showThresholdLabels": true,
+                    "showThresholdMarkers": true
+                }
+            },
+            {
+                "id": 10,
+                "title": "Current Memory",
+                "type": "gauge",
+                "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 6,
+                    "y": 32
+                },
+                "targets": [
+                    {
+                        "expr": "process_resident_memory_bytes / (4 * 1024 * 1024 * 1024) * 100",
+                        "refId": "A"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percent",
+                        "min": 0,
+                        "max": 100,
+                        "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": null
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 70
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 90
+                                }
+                            ]
+                        }
+                    }
+                },
+                "options": {
+                    "showThresholdLabels": true,
+                    "showThresholdMarkers": true
+                }
+            },
+            {
+                "id": 11,
+                "title": "Cache Hit Rate",
+                "type": "gauge",
+                "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 12,
+                    "y": 32
+                },
+                "targets": [
+                    {
+                        "expr": "sum(rate(cache_hits_total[5m])) / (sum(rate(cache_hits_total[5m])) + sum(rate(cache_misses_total[5m]))) * 100",
+                        "refId": "A"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "percent",
+                        "min": 0,
+                        "max": 100,
+                        "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                                {
+                                    "color": "red",
+                                    "value": null
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 50
+                                },
+                                {
+                                    "color": "green",
+                                    "value": 80
+                                }
+                            ]
+                        }
+                    }
+                },
+                "options": {
+                    "showThresholdLabels": true,
+                    "showThresholdMarkers": true
+                }
+            },
+            {
+                "id": 12,
+                "title": "Database Size",
+                "type": "stat",
+                "gridPos": {
+                    "h": 4,
+                    "w": 6,
+                    "x": 18,
+                    "y": 32
+                },
+                "targets": [
+                    {
+                        "expr": "db_size_bytes",
+                        "refId": "A"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "unit": "bytes",
+                        "decimals": 2,
+                        "thresholds": {
+                            "mode": "absolute",
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": null
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 10737418240
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 53687091200
+                                }
+                            ]
+                        }
+                    }
+                },
+                "options": {
+                    "graphMode": "area",
+                    "colorMode": "background"
+                }
+            }
+        ]
+    }
+}

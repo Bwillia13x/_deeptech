@@ -1,6 +1,24 @@
 # Signal Harvester
 
-A social media intelligence platform that harvests, triages, and scores signals from X (Twitter) using LLM-assisted classification. The system identifies customer signals such as bug reports, churn risks, feature requests, and support issues, then scores them by salience to surface the most important items for business attention.
+[![Tests](https://github.com/Bwillia13x/_deeptech/actions/workflows/test.yml/badge.svg)](https://github.com/Bwillia13x/_deeptech/actions/workflows/test.yml)
+[![Lint](https://github.com/Bwillia13x/_deeptech/actions/workflows/lint.yml/badge.svg)](https://github.com/Bwillia13x/_deeptech/actions/workflows/lint.yml)
+[![Frontend](https://github.com/Bwillia13x/_deeptech/actions/workflows/frontend.yml/badge.svg)](https://github.com/Bwillia13x/_deeptech/actions/workflows/frontend.yml)
+[![Security](https://github.com/Bwillia13x/_deeptech/actions/workflows/security.yml/badge.svg)](https://github.com/Bwillia13x/_deeptech/actions/workflows/security.yml)
+[![Docker](https://github.com/Bwillia13x/_deeptech/actions/workflows/deploy.yml/badge.svg)](https://github.com/Bwillia13x/_deeptech/actions/workflows/deploy.yml)
+
+Signal Harvester is a production-ready (beta) social and research intelligence platform that:
+
+- Harvests signals from X (Twitter) and adjacent sources.
+- Uses LLM-assisted classification and scoring to identify high-value items:
+  - Product feedback, bugs, outages, churn risk, competitors.
+  - Deep-tech discoveries, research fronts, influential entities (with full artifact classifications stored for auditing).
+- Surfaces prioritized, explainable signals for teams via API, CLI, static reports, and a React dashboard.
+For the canonical, up-to-date architecture, readiness posture, and prioritized roadmap, see:
+- [`signal-harvester/ARCHITECTURE_AND_READINESS.md`](signal-harvester/ARCHITECTURE_AND_READINESS.md:1)
+
+For a single pass/fail verification of the current implementation and docs, run from the repository root:
+
+- `cd signal-harvester && make verify-all` (see [`signal-harvester/Makefile`](signal-harvester/Makefile:7))
 
 ## Features
 
@@ -33,12 +51,14 @@ A social media intelligence platform that harvests, triages, and scores signals 
 ### Installation
 
 1. **Clone and setup**
+
    ```bash
    git clone https://github.com/Bwillia13x/_deeptech.git
    cd _deeptech/signal-harvester
    ```
 
 2. **Backend setup**
+
    ```bash
    # Install Python dependencies
    python -m pip install -e ".[dev]"
@@ -51,6 +71,7 @@ A social media intelligence platform that harvests, triages, and scores signals 
    ```
 
 3. **Frontend setup**
+
    ```bash
    cd frontend
    npm install
@@ -58,14 +79,16 @@ A social media intelligence platform that harvests, triages, and scores signals 
    ```
 
 4. **Configure API keys**
-   
+
    Edit `.env` with your credentials:
+
    ```bash
    # X (Twitter) API
    X_BEARER_TOKEN=your_x_api_bearer_token
    
    # LLM Providers (choose one or more)
-   OPENAI_API_KEY=your_openai_api_key
+   OPENAI_API_KEY=your_openai_api_key  # Required for research discovery classification
+   OPENAI_MODEL=gpt-4o-mini
    ANTHROPIC_API_KEY=your_anthropic_api_key
    
    # Optional: Error tracking
@@ -76,8 +99,9 @@ A social media intelligence platform that harvests, triages, and scores signals 
    ```
 
 5. **Configure search queries**
-   
+
    Edit `config/settings.yaml` to define what to monitor:
+
    ```yaml
    queries:
      bugs:
@@ -128,6 +152,10 @@ harvest notify
 # View top signals
 harvest top --limit 20
 
+# Browse deep-tech discoveries (table or JSON)
+harvest discoveries --min-score 85 --limit 25
+harvest discoveries --output json --limit 10 | jq '.'
+
 # Export data
 harvest export --format json --output signals.json
 ```
@@ -137,23 +165,52 @@ harvest export --format json --output signals.json
 ### Authentication
 
 Most endpoints require an API key passed in the `X-API-Key` header:
+
 ```bash
 export HARVEST_API_KEY=your-secret-key
 ```
 
 ### Key Endpoints
 
+#### Legacy Tweet Endpoints
+
 - `GET /top` - Get top-scored tweets
 - `GET /tweet/{id}` - Get specific tweet details
 - `POST /refresh` - Run the harvest pipeline
+
+#### Modern Signals & Snapshots API
+
+- `GET /signals` - List signals with pagination and filtering
+- `GET /signals/stats` - Get signal statistics
+- `GET /signals/{id}` - Get specific signal
+- `POST /signals` - Create new signal
+- `PATCH /signals/{id}` - Update signal
+- `DELETE /signals/{id}` - Delete signal
+- `GET /snapshots` - List snapshots
+- `GET /snapshots/{id}` - Get specific snapshot
+
+#### Bulk Operations
+
+- `POST /signals/bulk/status` - Bulk update signal status
+- `POST /signals/bulk/delete` - Bulk delete signals
+- `GET /bulk-jobs/{id}` - Get bulk job status
+- `GET /bulk-jobs/{id}/stream` - SSE stream for job progress
+- `POST /bulk-jobs/{id}/cancel` - Cancel bulk job
+
+#### Monitoring & Documentation
+
 - `GET /health` - Health check endpoint
 - `GET /metrics` - Application metrics (JSON)
 - `GET /metrics/prometheus` - Prometheus metrics
-- `GET /docs` - Interactive API documentation
+- `GET /docs` - Interactive API documentation (Swagger UI)
+- `GET /redoc` - ReDoc API documentation
+
+See [docs/API.md](docs/API.md) for complete API documentation.
 
 ### Rate Limiting
 
 API endpoints are rate-limited to 10 requests per minute per client. Configure via:
+
 ```bash
 export RATE_LIMITING_ENABLED=false  # Disable rate limiting
 export CORS_ORIGINS="https://yourapp.com"  # Restrict CORS
@@ -187,7 +244,7 @@ app:
     lang: "en"
   llm:
     provider: "openai"  # openai, anthropic, dummy
-    model: "gpt-4o-mini"
+    model: "gpt-4o-mini"  # Required for research discovery pipeline
     temperature: 0.0
   scoring:
     weights:
@@ -209,6 +266,25 @@ app:
 ```
 
 ## Development
+
+### Running Tests
+
+Tests require the `PYTHONPATH` to be set to include the `src` directory, or you can use the provided make targets:
+
+```bash
+# Recommended: Use make targets (handles PYTHONPATH automatically)
+make test           # Run all tests
+make verify-all     # Run complete verification suite (lint, format, test, frontend build)
+
+# Or manually with PYTHONPATH
+PYTHONPATH=src pytest tests/ -v
+
+# Run specific test file
+PYTHONPATH=src pytest tests/test_api_signals.py -v
+
+# Run with coverage
+PYTHONPATH=src pytest --cov=signal_harvester tests/
+```
 
 ### Code Quality
 
@@ -248,6 +324,16 @@ alembic downgrade -1
 4. Add tests in `tests/test_llm_client.py`
 
 ## Deployment
+
+For deployment, Docker, and operations details, use this README as an entrypoint and refer to:
+
+- [`signal-harvester/docs/DEPLOYMENT.md`](signal-harvester/docs/DEPLOYMENT.md:1) for deployment specifics.
+- [`signal-harvester/docs/OPERATIONS.md`](signal-harvester/docs/OPERATIONS.md:1) for runbook guidance.
+- [`signal-harvester/docs/BACKUP.md`](signal-harvester/docs/BACKUP.md:1) for backup and restore.
+- [`signal-harvester/docs/API.md`](signal-harvester/docs/API.md:1) and [`signal-harvester/docs/API_EXAMPLES.md`](signal-harvester/docs/API_EXAMPLES.md:1) for API usage.
+- [`signal-harvester/docs/USER_GUIDE.md`](signal-harvester/docs/USER_GUIDE.md:1) for user-facing workflows.
+
+These documents are maintained to align with the canonical architecture and readiness view in [`signal-harvester/ARCHITECTURE_AND_READINESS.md`](signal-harvester/ARCHITECTURE_AND_READINESS.md:1). In case of discrepancy, treat statements here and in those docs as historical and defer to the canonical file plus `make verify-all`.
 
 ### Production Docker
 
@@ -353,9 +439,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-- 📖 [Documentation](https://github.com/Bwillia13x/_deeptech/wiki)
-- 🐛 [Issue Tracker](https://github.com/Bwillia13x/_deeptech/issues)
-- 💬 [Discussions](https://github.com/Bwillia13x/_deeptech/discussions)
+For the living architecture, readiness status, and roadmap, always start with:
+
+- [`signal-harvester/ARCHITECTURE_AND_READINESS.md`](signal-harvester/ARCHITECTURE_AND_READINESS.md:1)
+- `cd signal-harvester && make verify-all` as the single health/consistency check.
+
+Historical or external documentation (including older wiki pages) may be outdated; prefer the files in this repository that explicitly reference the canonical architecture document.
 
 ---
 

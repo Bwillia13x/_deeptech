@@ -1,0 +1,153 @@
+name: Docker Build & Deploy
+
+on:
+    push:
+        branches: [main]
+        tags:
+            - "v*.*.*"
+    pull_request:
+        branches: [main]
+
+env:
+    REGISTRY: ghcr.io
+    IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+    build-and-push:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            packages: write
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Log in to Container Registry
+              if: github.event_name != 'pull_request'
+              uses: docker/login-action@v3
+              with:
+                  registry: ${{ env.REGISTRY }}
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Extract metadata
+              id: meta
+              uses: docker/metadata-action@v5
+              with:
+                  images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+                  tags: |
+                      type=ref,event=branch
+                      type=ref,event=pr
+                      type=semver,pattern={{version}}
+                      type=semver,pattern={{major}}.{{minor}}
+                      type=sha,prefix={{branch}}-
+                      type=raw,value=latest,enable={{is_default_branch}}
+
+            - name: Build and push Docker image
+              uses: docker/build-push-action@v5
+              with:
+                  context: .
+                  push: ${{ github.event_name != 'pull_request' }}
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+                  build-args: |
+                      BUILD_DATE=${{ github.event.head_commit.timestamp }}
+                      VCS_REF=${{ github.sha }}
+                      VERSION=${{ steps.meta.outputs.version }}
+
+            - name: Run Trivy security scan
+              uses: aquasecurity/trivy-action@master
+              with:
+                  image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+                  format: "sarif"
+                  output: "trivy-results.sarif"
+              continue-on-error: true
+
+            - name: Upload Trivy results to GitHub Security
+              uses: github/codeql-action/upload-sarif@v3
+              if: always()
+              with:
+                  sarif_file: "trivy-results.sarif"
+              continue-on-error: true
+
+    deploy-staging:
+        needs: build-and-push
+        runs-on: ubuntu-latest
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        environment:
+            name: staging
+            url: https://staging.signal-harvester.example.com
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Set up kubectl
+              uses: azure/setup-kubectl@v4
+              with:
+                  version: "latest"
+
+            - name: Configure kubectl context
+              run: |
+                  echo "Would configure kubectl with staging cluster credentials"
+                  echo "kubectl config use-context staging"
+              # Actual implementation would use:
+              # - Azure/setup-kubectl for AKS
+              # - aws-actions/configure-aws-credentials for EKS
+              # - google-github-actions/setup-gcloud for GKE
+
+            - name: Deploy to staging
+              run: |
+                  echo "Would deploy to staging with:"
+                  echo "kubectl set image deployment/signal-harvester signal-harvester=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+                  echo "kubectl rollout status deployment/signal-harvester"
+              # Actual kubectl commands would go here
+
+            - name: Run smoke tests
+              run: |
+                  echo "Would run smoke tests against staging"
+                  echo "curl -f https://staging.signal-harvester.example.com/health || exit 1"
+
+    deploy-production:
+        needs: deploy-staging
+        runs-on: ubuntu-latest
+        if: startsWith(github.ref, 'refs/tags/v')
+        environment:
+            name: production
+            url: https://signal-harvester.example.com
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Set up kubectl
+              uses: azure/setup-kubectl@v4
+              with:
+                  version: "latest"
+
+            - name: Configure kubectl context
+              run: |
+                  echo "Would configure kubectl with production cluster credentials"
+                  echo "kubectl config use-context production"
+
+            - name: Deploy to production
+              run: |
+                  echo "Would deploy to production with:"
+                  echo "kubectl set image deployment/signal-harvester signal-harvester=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+                  echo "kubectl rollout status deployment/signal-harvester"
+
+            - name: Run smoke tests
+              run: |
+                  echo "Would run smoke tests against production"
+                  echo "curl -f https://signal-harvester.example.com/health || exit 1"
+
+            - name: Notify deployment
+              run: |
+                  echo "Would send deployment notification to Slack/Teams"
+                  echo "Deployed version ${{ github.ref_name }} to production"

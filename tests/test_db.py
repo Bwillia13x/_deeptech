@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tempfile
 
-from signal_harvester.db import init_db, upsert_tweet, update_analysis, update_salience, list_top
+from signal_harvester.db import init_db, list_top, update_analysis, update_salience, upsert_tweet
 
 
 def test_db_operations():

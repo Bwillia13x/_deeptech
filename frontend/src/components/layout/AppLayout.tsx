@@ -36,6 +36,8 @@ function Header() {
 
           <nav className="ml-2 hidden md:flex items-center gap-1">
             <TopNavLink to="/dashboard">Dashboard</TopNavLink>
+            <TopNavLink to="/analytics">Analytics</TopNavLink>
+            <TopNavLink to="/discoveries">Discoveries</TopNavLink>
             <TopNavLink to="/signals">Signals</TopNavLink>
             <TopNavLink to="/snapshots">Snapshots</TopNavLink>
             <TopNavLink to="/settings">Settings</TopNavLink>

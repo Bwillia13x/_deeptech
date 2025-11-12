@@ -4,11 +4,12 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
-from signal_harvester.snapshot import rotate_snapshot
 from signal_harvester.site import build_all
-from signal_harvester.verify import verify_site, verify_snapshot, main as verify_main
+from signal_harvester.snapshot import rotate_snapshot
+from signal_harvester.verify import main as verify_main
+from signal_harvester.verify import verify_site, verify_snapshot
 
 
 class TestVerify(unittest.TestCase):
@@ -29,13 +30,29 @@ class TestVerify(unittest.TestCase):
 
         day1 = datetime(2025, 2, 1, tzinfo=timezone.utc)
         rows1 = [
-            {"username": "alice", "user_id": "1", "overall": 0.6, "letter_grade": "B", "followers_count": 100, "tweet_count": 10, "score_created_at": "2025-02-01T00:00:00Z"},
-            {"username": "bob", "user_id": "2", "overall": 0.7, "letter_grade": "A", "followers_count": 200, "tweet_count": 20, "score_created_at": "2025-02-01T00:00:00Z"},
+            {
+                "username": "alice",
+                "user_id": "1",
+                "overall": 0.6,
+                "letter_grade": "B",
+                "followers_count": 100,
+                "tweet_count": 10,
+                "score_created_at": "2025-02-01T00:00:00Z",
+            },
+            {
+                "username": "bob",
+                "user_id": "2",
+                "overall": 0.7,
+                "letter_grade": "A",
+                "followers_count": 200,
+                "tweet_count": 20,
+                "score_created_at": "2025-02-01T00:00:00Z",
+            },
         ]
         src1 = os.path.join(self.base, "in1.json")
         self._write_src(rows1, src1)
 
-        dir1 = rotate_snapshot(
+        rotate_snapshot(
             base_dir=self.base,
             src=src1,
             now=day1,
@@ -52,8 +69,24 @@ class TestVerify(unittest.TestCase):
 
         day2 = day1 + timedelta(days=1)
         rows2 = [
-            {"username": "alice", "user_id": "1", "overall": 0.9, "letter_grade": "A", "followers_count": 150, "tweet_count": 12, "score_created_at": "2025-02-02T00:00:00Z"},
-            {"username": "carol", "user_id": "3", "overall": 0.4, "letter_grade": "C", "followers_count": 50, "tweet_count": 5, "score_created_at": "2025-02-02T00:00:00Z"},
+            {
+                "username": "alice",
+                "user_id": "1",
+                "overall": 0.9,
+                "letter_grade": "A",
+                "followers_count": 150,
+                "tweet_count": 12,
+                "score_created_at": "2025-02-02T00:00:00Z",
+            },
+            {
+                "username": "carol",
+                "user_id": "3",
+                "overall": 0.4,
+                "letter_grade": "C",
+                "followers_count": 50,
+                "tweet_count": 5,
+                "score_created_at": "2025-02-02T00:00:00Z",
+            },
         ]
         src2 = os.path.join(self.base, "in2.json")
         self._write_src(rows2, src2)

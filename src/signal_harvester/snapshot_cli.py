@@ -62,6 +62,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         write_schema_files=not args.no_schema,
     )
     print(f"snapshot created: {root}")
+    
+    # Note: File-based snapshots created via CLI are independent from the API snapshot system.
+    # API snapshots are tied to specific signal_ids in the database. To create a database
+    # snapshot record, use the POST /snapshots API endpoint with a valid signal_id.
 
     if args.update_site:
         result = build_all(

@@ -4,8 +4,8 @@ app:
     max_results: 50
     lang: "en"
   llm:
-    provider: "xai"
-    model: "grok-4"
+    provider: "openai"
+    model: "gpt-4o-mini"
     temperature: 0.2
   scoring:
     weights:
@@ -13,6 +13,99 @@ app:
       negative_sentiment: 0.30
       urgency: 0.25
       impact: 0.20
+  embeddings:
+    # Redis-backed embedding cache configuration
+    redis_enabled: false # Set to true when Redis is available
+    redis_host: "localhost"
+    redis_port: 6379
+    redis_db: 0
+    redis_password: null # Set if Redis requires authentication
+    ttl_seconds: 604800 # 7 days (604800 seconds)
+    max_memory_cache_size: 10000 # Max entries in fallback memory cache
+    model_name: "all-MiniLM-L6-v2" # Sentence transformer model
+    batch_size: 32 # Batch size for parallel embedding computation
+    refresh_enabled: true # Enable background refresh pipeline
+    refresh_interval_hours: 24 # Run refresh every 24 hours
+    refresh_stale_threshold_days: 3 # Refresh embeddings older than 3 days
+
+  cache:
+    # Redis-backed response cache configuration (separate from embeddings)
+    redis_enabled: false # Set to true when Redis is available
+    redis_host: "localhost"
+    redis_port: 6379
+    redis_db: 1 # Use separate database from embeddings (db=0)
+    redis_password: null # Set if Redis requires authentication
+    discovery_ttl: 3600 # Discovery results cache TTL (1 hour)
+    topic_ttl: 3600 # Topic trends cache TTL (1 hour)
+    entity_ttl: 86400 # Entity profiles cache TTL (24 hours)
+    max_memory_cache_size: 1000 # Max entries in fallback memory cache
+
+  sources:
+    facebook:
+      enabled: true
+      pages: [] # Add Facebook page IDs to monitor, e.g., ["openai", "MetaAI"]
+      groups: [] # Add Facebook group IDs to monitor
+      search_queries:
+        - "artificial intelligence research"
+        - "quantum computing"
+        - "robotics"
+        - "machine learning breakthrough"
+      max_results: 50
+
+    linkedin:
+      enabled: true
+      organizations: [] # Add LinkedIn organization URNs, e.g., ["urn:li:organization:1337"]
+      max_results: 50
+
+  backup:
+    # Database backup configuration
+    enabled: true
+    backup_dir: "backups" # Directory to store backups
+    compression: "gzip" # Compression type: none, gzip, zstd
+    retention_days: 90 # Default retention period in days
+
+    # Backup schedule
+    schedule:
+      daily_enabled: true
+      daily_time: "02:00" # UTC time for daily backups
+      weekly_enabled: true
+      weekly_day: "sunday" # Day of week for weekly backups
+      weekly_time: "03:00" # UTC time for weekly backups
+      monthly_enabled: true
+      monthly_day: 1 # Day of month for monthly backups
+      monthly_time: "04:00" # UTC time for monthly backups
+
+    # Retention policy
+    retention:
+      daily_keep: 7 # Keep last 7 daily backups
+      weekly_keep: 4 # Keep last 4 weekly backups
+      monthly_keep: 12 # Keep last 12 monthly backups
+
+    # Cloud storage (S3)
+    s3:
+      enabled: false # Set to true to enable S3 uploads
+      bucket: "" # S3 bucket name
+      prefix: "signal-harvester/backups" # S3 key prefix
+      region: "us-east-1" # AWS region
+      upload_after_backup: true # Automatically upload after backup creation
+
+    # Cloud storage (GCS)
+    gcs:
+      enabled: false
+      bucket: ""
+      prefix: "signal-harvester/backups"
+
+    # Cloud storage (Azure)
+    azure:
+      enabled: false
+      container: ""
+      account_name: ""
+      prefix: "signal-harvester/backups"
+
+    # Backup verification
+    verification:
+      verify_after_backup: true # Verify backups after creation
+      verify_before_restore: true # Verify backups before restore
 
 queries:
   - name: "brand_support"

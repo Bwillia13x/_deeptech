@@ -4,11 +4,12 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
+from signal_harvester.quota import apply_quota, compute_quota_plan, parse_size_to_bytes
+from signal_harvester.quota import main as quota_main
 from signal_harvester.snapshot import rotate_snapshot
 from signal_harvester.stats import compute_stats
-from signal_harvester.quota import parse_size_to_bytes, compute_quota_plan, apply_quota, main as quota_main
 
 
 class TestQuota(unittest.TestCase):
@@ -27,7 +28,15 @@ class TestQuota(unittest.TestCase):
     def _make_snapshots(self, base_url: str):
         day1 = datetime(2025, 3, 1, tzinfo=timezone.utc)
         rows1 = [
-            {"username": "alice", "user_id": "1", "overall": 0.6, "letter_grade": "B", "followers_count": 100, "tweet_count": 10, "score_created_at": "2025-03-01T00:00:00Z"},
+            {
+                "username": "alice",
+                "user_id": "1",
+                "overall": 0.6,
+                "letter_grade": "B",
+                "followers_count": 100,
+                "tweet_count": 10,
+                "score_created_at": "2025-03-01T00:00:00Z",
+            },
         ]
         src1 = os.path.join(self.base, "in1.json")
         self._write_src(rows1, src1)
@@ -48,7 +57,15 @@ class TestQuota(unittest.TestCase):
 
         day2 = day1 + timedelta(days=1)
         rows2 = [
-            {"username": "bob", "user_id": "2", "overall": 0.8, "letter_grade": "A", "followers_count": 200, "tweet_count": 20, "score_created_at": "2025-03-02T00:00:00Z"},
+            {
+                "username": "bob",
+                "user_id": "2",
+                "overall": 0.8,
+                "letter_grade": "A",
+                "followers_count": 200,
+                "tweet_count": 20,
+                "score_created_at": "2025-03-02T00:00:00Z",
+            },
         ]
         src2 = os.path.join(self.base, "in2.json")
         self._write_src(rows2, src2)
@@ -71,7 +88,15 @@ class TestQuota(unittest.TestCase):
 
         day3 = day2 + timedelta(days=1)
         rows3 = [
-            {"username": "carol", "user_id": "0", "overall": 0.3, "letter_grade": "o", "followers_count": 50, "tweet_count": 5, "score_created_at": "2025-03-03T00:00:00Z"},
+            {
+                "username": "carol",
+                "user_id": "0",
+                "overall": 0.3,
+                "letter_grade": "o",
+                "followers_count": 50,
+                "tweet_count": 5,
+                "score_created_at": "2025-03-03T00:00:00Z",
+            },
         ]
         src3 = os.path.join(self.base, "in3.json")
         self._write_src(rows3, src3)

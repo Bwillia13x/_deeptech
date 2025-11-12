@@ -5,13 +5,12 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
-from pathlib import Path
 
 from signal_harvester.config import load_settings
-from signal_harvester.db import init_db, upsert_tweet, update_analysis, update_salience, list_top
+from signal_harvester.db import init_db, list_top, update_analysis, update_salience, upsert_tweet
+from signal_harvester.llm_client import Analysis
 from signal_harvester.pipeline import run_pipeline
 from signal_harvester.scoring import compute_salience
-from signal_harvester.llm_client import Analysis
 
 
 class TestIntegration(unittest.TestCase):

@@ -1,5 +1,9 @@
 # Signal Harvester - User Guide
 
+> This guide is part of the maintained documentation set for Signal Harvester.
+> For the canonical architecture, readiness posture, and prioritized roadmap, refer to [`signal-harvester/ARCHITECTURE_AND_READINESS.md`](signal-harvester/ARCHITECTURE_AND_READINESS.md:1).
+> To validate an installation end-to-end, from the `signal-harvester` directory run `make verify-all` (see [`signal-harvester/Makefile`](signal-harvester/Makefile:7)).
+
 ## 📚 Table of Contents
 
 1. [Introduction](#introduction)

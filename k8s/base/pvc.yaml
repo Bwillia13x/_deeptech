@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: signal-harvester-data
+  namespace: signal-harvester
+  labels:
+    app.kubernetes.io/name: signal-harvester
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: standard-rwo # Change based on cloud provider
+  # GKE: standard-rwo, premium-rwo
+  # EKS: gp3, gp2
+  # AKS: managed-csi, managed-premium
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: signal-harvester-logs
+  namespace: signal-harvester
+  labels:
+    app.kubernetes.io/name: signal-harvester
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard-rwo
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: signal-harvester
+  labels:
+    app.kubernetes.io/name: signal-harvester
+    app.kubernetes.io/component: storage
+    app.kubernetes.io/part-of: redis
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard-rwo

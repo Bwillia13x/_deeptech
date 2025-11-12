@@ -4,7 +4,7 @@ PKG := signal_harvester
 
 export PYTHONPATH := src
 
-.PHONY: install lint format test clean run init-db fetch analyze score notify top export api daemon snapshot verify site html serve prune stats quota retain
+.PHONY: install lint format test clean run init-db fetch analyze score notify top export api daemon snapshot verify site html serve prune stats quota retain verify-all
 
 install:
 	pip install -e ".[dev]"
@@ -82,3 +82,14 @@ retain:
 	harvest retain
 
 ci: install lint test
+
+verify-all: lint test
+	@echo "Running full verification suite..."
+	@echo "1. Backend linting and tests complete"
+	@echo "2. Building frontend..."
+	cd frontend && npm install && npm run build
+	@echo "3. Type checking frontend..."
+	cd frontend && npm run typecheck
+	@echo "4. Profiling critical queries (Phase Three performance analyzers)"
+	harvest db analyze-performance --iterations 25
+	@echo "✓ All verifications passed!"

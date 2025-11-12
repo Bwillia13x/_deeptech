@@ -1,0 +1,6 @@
+from __future__ import annotations
+
+from typing import Any
+
+def safe_load(stream: Any) -> Any: ...
+def dump(data: Any, stream: Any | None = None, **kwargs: Any) -> str: ...

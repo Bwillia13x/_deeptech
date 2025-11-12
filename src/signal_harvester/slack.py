@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import httpx
 
@@ -33,6 +33,24 @@ def format_slack_message(item: Dict[str, object]) -> str:
     )
     text = truncate(str(item.get("text") or ""), 260)
     return f"[{sal}] {cat} | {sent} | urgency={urg} — @{user}\n{text}\n{metrics}\n{url}"
+
+
+def format_discovery_slack_message(discovery: Dict[str, Any]) -> Dict[str, Any]:
+    """Format a discovery artifact for Slack notification payload."""
+    title = discovery.get("title", "Untitled")
+    source = discovery.get("source", "unknown")
+    score = discovery.get("discovery_score", 0)
+    url = discovery.get("url", "")
+
+    text = f"🚀 *Discovery Score: {score:.1f}* | Source: {source.upper()}\n"
+    text += f"*{title}*\n"
+    text += f"{url}"
+
+    return {
+        "text": text,
+        "unfurl_links": True,
+        "unfurl_media": True,
+    }
 
 
 def post_to_slack(webhook_url: str, text: str, timeout: float = 8.0) -> bool:

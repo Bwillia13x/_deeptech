@@ -5,14 +5,51 @@ from __future__ import annotations
 from typing import Optional
 
 import typer
+from click import get_current_context
 from rich.console import Console
 from rich.table import Table
 
 from ..logger import get_logger
+from .backup_cli import app as backup_app
+from .db_commands import db_app
+from .phase_two_commands import phase_two_app
 
+quality_app = typer.Typer(help="Quality assurance commands")
 app = typer.Typer(add_completion=False, no_args_is_help=True)
+app.add_typer(quality_app, name="quality")
+app.add_typer(phase_two_app, name="phase-two")
+app.add_typer(db_app, name="db")
+app.add_typer(backup_app, name="backup")
 console = Console()
 log = get_logger(__name__)
+
+# Import sub-command modules after app is created to avoid circular imports
+def _register_commands() -> None:
+    from .quality_commands import (
+        add_review_item,
+        compute_quality_score,
+        get_audit_log,
+        get_quality_metrics,
+        get_review_queue,
+        initialize_quality_system,
+        process_review,
+        run_full_quality_check,
+        run_validation,
+    )
+
+    quality_app.command("run-validation")(run_validation)
+    quality_app.command("compute-score")(compute_quality_score)
+    quality_app.command("full-check")(run_full_quality_check)
+    quality_app.command("review-queue")(get_review_queue)
+    quality_app.command("process-review")(process_review)
+    quality_app.command("add-review")(add_review_item)
+    quality_app.command("audit-log")(get_audit_log)
+    quality_app.command("metrics")(get_quality_metrics)
+    quality_app.command("initialize")(initialize_quality_system)
+
+
+# Register commands when module is loaded
+_register_commands()
 
 
 @app.callback()
@@ -28,9 +65,10 @@ def main(
     ctx.obj = {"config": config}
 
 
-def get_config_path(ctx: typer.Context) -> str | None:
+def get_config_path(ctx: typer.Context | None = None) -> str | None:
     """Get config path from context."""
-    return ctx.obj.get("config") if ctx.obj else None
+    context = ctx or get_current_context(silent=True)
+    return context.obj.get("config") if context and context.obj else None
 
 
 @app.command("beta-invite")
@@ -61,7 +99,7 @@ def beta_list(
     status: Optional[str] = typer.Option(None, "--status", help="Filter by status (pending, active, expired)"),
 ) -> None:
     """List beta users."""
-    from ..beta import list_beta_users, get_beta_stats
+    from ..beta import get_beta_stats, list_beta_users
     from ..config import load_settings
     
     config_path = get_config_path(ctx)

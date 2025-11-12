@@ -23,6 +23,8 @@ dependencies = [
   "redis>=5.0.0",
   "prometheus-client>=0.20.0",
   "sentry-sdk[fastapi]>=2.0.0",
+  "sentence-transformers>=2.7.0",
+  "numpy>=1.24.0",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +37,9 @@ dev = [
   "ruff>=0.6.5",
   "alembic>=1.13.1",
   "SQLAlchemy>=2.0.30",
+  "types-PyYAML>=6.0.1",
+  "types-sentry-sdk>=1.4.0",
+  "scipy-stubs>=1.11.0",
 ]
 
 [project.scripts]
@@ -62,3 +67,7 @@ ignore = []
 
 [tool.pyright]
 pythonVersion = "3.10"
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = ["stubs"]
