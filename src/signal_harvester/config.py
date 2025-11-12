@@ -217,15 +217,61 @@ class ConnectionPoolConfig(BaseModel):
     pool_recycle: int = 3600  # Recycle connections after 1 hour
 
 
+class DatabaseConfig(BaseModel):
+    """Database configuration supporting both SQLite and PostgreSQL."""
+    # Database URL - supports both sqlite:/// and postgresql:// formats
+    # Examples:
+    #   SQLite: sqlite:///var/app.db or sqlite:////absolute/path/app.db
+    #   PostgreSQL: postgresql://user:pass@host:port/dbname
+    url: str = "sqlite:///var/app.db"
+    
+    # Deprecated: Legacy path-based configuration (kept for backward compatibility)
+    path: Optional[str] = None
+    
+    # Connection pooling settings (PostgreSQL only)
+    pool: ConnectionPoolConfig = Field(default_factory=ConnectionPoolConfig)
+    
+    # Query timeout in seconds
+    query_timeout: float = 30.0
+    
+    # Enable query logging for debugging
+    echo_sql: bool = False
+    
+    @property
+    def database_type(self) -> str:
+        """Detect database type from URL."""
+        if self.url.startswith("postgresql://"):
+            return "postgresql"
+        elif self.url.startswith("sqlite://"):
+            return "sqlite"
+        # Fallback for legacy path-based config
+        return "sqlite"
+    
+    @property
+    def is_postgres(self) -> bool:
+        """Check if using PostgreSQL."""
+        return self.database_type == "postgresql"
+    
+    @property
+    def is_sqlite(self) -> bool:
+        """Check if using SQLite."""
+        return self.database_type == "sqlite"
+
+
 class AppConfig(BaseModel):
+    # Legacy SQLite path (deprecated - use database.url instead)
     database_path: str = "data/harvest.db"
+    
+    # New database configuration
+    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    
     fetch: FetchConfig = FetchConfig()
     llm: LLMConfig = LLMConfig()
     weights: Weights = Weights()
     sources: SourcesConfig = SourcesConfig()
     identity_resolution: IdentityResolutionConfig = IdentityResolutionConfig()
     topic_evolution: TopicEvolutionConfig = TopicEvolutionConfig()
-    connection_pool: ConnectionPoolConfig = ConnectionPoolConfig()
+    connection_pool: ConnectionPoolConfig = ConnectionPoolConfig()  # Deprecated: use database.pool
     backup: BackupConfig = Field(default_factory=BackupConfig)
     facebook_access_token: Optional[str] = None
     linkedin_access_token: Optional[str] = None
@@ -260,10 +306,20 @@ def load_settings(path: Optional[str] = None) -> Settings:
     if not p:
         log.warning("No settings file found; using defaults")
         s = Settings()
-        # Small env overrides
-        db_env = os.getenv("HARVEST_DB_PATH")
-        if db_env:
-            s.app.database_path = db_env
+        # Environment overrides
+        db_url_env = os.getenv("DATABASE_URL")
+        db_path_env = os.getenv("HARVEST_DB_PATH")
+        
+        # DATABASE_URL takes precedence (can be postgresql:// or sqlite://)
+        if db_url_env:
+            s.app.database.url = db_url_env
+        # Fallback to legacy HARVEST_DB_PATH for backward compatibility
+        elif db_path_env:
+            s.app.database_path = db_path_env
+            # Convert legacy path to SQLite URL
+            if not db_path_env.startswith("sqlite://"):
+                s.app.database.url = f"sqlite:///{db_path_env}"
+        
         lang_env = os.getenv("HARVEST_FETCH_LANG")
         if lang_env:
             s.app.fetch.lang = lang_env
@@ -276,15 +332,34 @@ def load_settings(path: Optional[str] = None) -> Settings:
     except ValidationError as e:
         log.error("Settings validation failed: %s", e)
         raise
-    # Env overrides
-    if db_path := os.getenv("HARVEST_DB_PATH"):
+    
+    # Environment variable overrides (highest priority)
+    if db_url := os.getenv("DATABASE_URL"):
+        # DATABASE_URL environment variable overrides config file
+        s.app.database.url = db_url
+        log.info(f"Using DATABASE_URL from environment: {db_url.split('@')[-1] if '@' in db_url else db_url}")
+    elif db_path := os.getenv("HARVEST_DB_PATH"):
+        # Legacy HARVEST_DB_PATH for backward compatibility
         s.app.database_path = db_path
+        if not db_path.startswith("sqlite://"):
+            s.app.database.url = f"sqlite:///{db_path}"
+    
+    # If database.url wasn't set in config, construct from legacy database_path
+    if s.app.database.url == "sqlite:///var/app.db" and s.app.database_path != "data/harvest.db":
+        # Legacy config uses database_path, convert to URL format
+        if not s.app.database_path.startswith("sqlite://"):
+            s.app.database.url = f"sqlite:///{s.app.database_path}"
+        else:
+            s.app.database.url = s.app.database_path
+    
+    # Other environment overrides
     if fetch_lang := os.getenv("HARVEST_FETCH_LANG"):
         s.app.fetch.lang = fetch_lang
     if llm_provider := os.getenv("HARVEST_LLM_PROVIDER"):
         s.app.llm.provider = llm_provider
     if llm_model := os.getenv("HARVEST_LLM_MODEL"):
         s.app.llm.model = llm_model
+    
     return s
 
 
