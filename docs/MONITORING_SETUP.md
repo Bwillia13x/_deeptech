@@ -27,6 +27,7 @@ cd signal-harvester
 ```
 
 The deployment script will:
+
 1. Check prerequisites (Docker, Docker Compose)
 2. Build the Signal Harvester API image if needed
 3. Deploy all monitoring services
@@ -37,26 +38,26 @@ The deployment script will:
 
 Once deployed, access the monitoring services at:
 
-- **Grafana**: http://localhost:3000
+- **Grafana**: <http://localhost:3000>
   - Default credentials: `admin` / `admin` (change on first login)
   - Pre-configured Prometheus datasource
   - Import dashboards from `monitoring/grafana/`
 
-- **Prometheus**: http://localhost:9090
+- **Prometheus**: <http://localhost:9090>
   - Query interface for metrics
-  - View scraping targets at http://localhost:9090/targets
-  - View active alerts at http://localhost:9090/alerts
+  - View scraping targets at <http://localhost:9090/targets>
+  - View active alerts at <http://localhost:9090/alerts>
 
-- **Alertmanager**: http://localhost:9093
+- **Alertmanager**: <http://localhost:9093>
   - View active alerts
   - Manage alert silences
   - Configure notification routing
 
-- **API Metrics**: http://localhost:8000/prometheus
+- **API Metrics**: <http://localhost:8000/prometheus>
   - Raw Prometheus metrics from Signal Harvester API
   - Includes request latency, error rates, and Python runtime metrics
 
-- **Node Exporter**: http://localhost:9100/metrics
+- **Node Exporter**: <http://localhost:9100/metrics>
   - System-level metrics (CPU, memory, disk, network)
 
 ## Architecture
@@ -147,7 +148,7 @@ Dashboards in `monitoring/grafana/` are auto-imported on Grafana startup via pro
 
 #### Method 2: Manual Import
 
-1. Access Grafana at http://localhost:3000
+1. Access Grafana at <http://localhost:3000>
 2. Login with `admin` / `admin`
 3. Navigate to **Dashboards** → **Import**
 4. Click **Upload JSON file**
