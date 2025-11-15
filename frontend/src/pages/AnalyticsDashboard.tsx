@@ -4,8 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Button } from "../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { Badge } from "../components/ui/badge";
-import { RefreshCw, BarChart3, TrendingUp, Activity, Database, Zap, Shield } from "lucide-react";
+import { RefreshCw, BarChart3, TrendingUp, Activity, Zap, Shield } from "lucide-react";
 import { getDashboardAnalytics, getDiscoveryStats } from "../api/discoveries";
 import { SourceDistributionChart } from "../components/analytics/SourceDistributionChart";
 import { TemporalTrendsChart } from "../components/analytics/TemporalTrendsChart";

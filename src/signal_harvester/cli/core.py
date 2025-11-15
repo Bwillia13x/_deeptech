@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 import typer
@@ -10,6 +11,11 @@ from rich.console import Console
 from rich.table import Table
 
 from ..logger import get_logger
+from ..postgres_validation import (
+    DEFAULT_DATABASE_URL,
+    obfuscate_password,
+    run_postgres_validation,
+)
 from .backup_cli import app as backup_app
 from .db_commands import db_app
 from .phase_two_commands import phase_two_app
@@ -181,3 +187,74 @@ def beta_stats(ctx: typer.Context) -> None:
         table.add_row("Activation Rate", f"{activation_rate:.1f}%")
     
     console.print(table)
+
+
+@app.command("verify-postgres")
+def verify_postgres(
+    ctx: typer.Context,
+    database_url: Optional[str] = typer.Option(
+        None,
+        "--database-url",
+        "-d",
+        help="PostgreSQL DSN to validate (defaults to DATABASE_URL env or local fallback)",
+    ),
+    show_tables: bool = typer.Option(
+        True,
+        "--show-tables/--hide-tables",
+        help="Display the discovered table list",
+    ),
+    show_row_counts: bool = typer.Option(
+        True,
+        "--show-row-counts/--hide-row-counts",
+        help="Display row counts for key tables",
+    ),
+) -> None:
+    """Validate the PostgreSQL deployment used for remote rehearsals."""
+
+    _ = ctx  # currently unused but kept for future config wiring
+    url = database_url or os.environ.get("DATABASE_URL") or DEFAULT_DATABASE_URL
+
+    console.rule("PostgreSQL Schema Validation")
+    console.print(f"Using DSN: {obfuscate_password(url)}")
+    result = run_postgres_validation(url)
+
+    if result.error or not result.connected:
+        console.print(f"[red]✗ Validation failed:[/red] {result.error or 'Unable to connect'}")
+        raise typer.Exit(1)
+
+    if result.version_string:
+        console.print(f"✓ Connected to PostgreSQL: {result.version_string[:60]}...")
+
+    if show_tables:
+        table = Table(title="Tables", show_lines=False)
+        table.add_column("Name", style="cyan")
+        for table_name in result.tables:
+            table.add_row(table_name)
+        console.print(table)
+
+    if result.missing_tables:
+        console.print(f"[red]✗ Missing tables:[/red] {', '.join(result.missing_tables)}")
+        raise typer.Exit(1)
+
+    if result.type_mismatches:
+        console.print("[red]✗ Column type mismatches detected:[/red]")
+        for mismatch in result.type_mismatches:
+            console.print(f"  - {mismatch}")
+        raise typer.Exit(1)
+
+    console.print(f"\n✓ Found {result.artifacts_index_count} indexes on artifacts table")
+
+    if show_row_counts and result.row_counts:
+        counts_table = Table(title="Row Counts", show_lines=False)
+        counts_table.add_column("Table")
+        counts_table.add_column("Rows", justify="right")
+        for name, count in sorted(result.row_counts.items()):
+            counts_table.add_row(name, str(count))
+        console.print(counts_table)
+
+    if result.schema_version is None:
+        console.print("[red]✗ schema_version table is empty or missing[/red]")
+        raise typer.Exit(1)
+
+    console.print(f"\n✓ Schema version: {result.schema_version}")
+    console.rule("PostgreSQL Migration Validation: SUCCESS")

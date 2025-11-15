@@ -11,7 +11,7 @@ export default function ErrorBoundary({ children }: { children: React.ReactNode 
             <div className="max-w-md w-full space-y-4 text-center">
               <h1 className="text-2xl font-bold">Something went wrong</h1>
               <p className="text-muted-foreground">
-                We've been notified and are working on a fix.
+                We&apos;ve been notified and are working on a fix.
               </p>
               <div className="rounded-lg border p-4 bg-muted">
                 <p className="text-sm font-mono text-muted-foreground">

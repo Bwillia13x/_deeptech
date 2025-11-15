@@ -12,7 +12,9 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from .db import connect, utc_now_iso
+from collections.abc import Mapping
+
+from .db import connect, utc_now_iso, _insert_and_return_id
 
 log = logging.getLogger(__name__)
 
@@ -81,15 +83,15 @@ def create_experiment(
                 raise ValueError(f"Experiment '{name}' already exists")
             
             # Insert new experiment
-            cur = conn.execute(
+            experiment_id = _insert_and_return_id(
+                conn,
+                db_path,
                 """
                 INSERT INTO experiments (name, description, config_json, baseline_id, created_at, updated_at, status)
                 VALUES (?, ?, ?, ?, ?, ?, 'draft')
                 """,
-                (name, config.description, config_json, baseline_id, now, now)
+                (name, config.description, config_json, baseline_id, now, now),
             )
-            experiment_id = cur.lastrowid
-            assert experiment_id is not None, "Failed to create experiment"
             
         log.info("Created experiment %d: %s", experiment_id, name)
         return experiment_id
@@ -166,7 +168,9 @@ def create_experiment_run(
         metadata_json = json.dumps(metadata) if metadata else None
         
         with conn:
-            cur = conn.execute(
+            run_id = _insert_and_return_id(
+                conn,
+                db_path,
                 """
                 INSERT INTO experiment_runs (
                     experiment_id,
@@ -199,10 +203,8 @@ def create_experiment_run(
                     now,
                     now,
                     metadata_json,
-                )
+                ),
             )
-            run_id = cur.lastrowid
-            assert run_id is not None, "Failed to create experiment run"
             
             # Update experiment status
             conn.execute(
@@ -215,6 +217,30 @@ def create_experiment_run(
         return run_id
     finally:
         conn.close()
+
+
+def _row_to_mapping(row: Any) -> dict[str, Any]:
+    """Return a plain dict for SQLite Row, psycopg RealDictRow, or tuple."""
+    if isinstance(row, Mapping):
+        return dict(row)
+    if hasattr(row, "keys"):
+        # sqlite3.Row exposes keys() even though it's not a Mapping subclass
+        return {key: row[key] for key in row.keys()}
+    return dict(row)
+
+
+def _serialize_experiment(row: Any) -> dict[str, Any]:
+    data = _row_to_mapping(row)
+    return {
+        "id": data["id"],
+        "name": data["name"],
+        "description": data.get("description"),
+        "config": json.loads(data["config_json"]),
+        "baselineId": data.get("baseline_id"),
+        "createdAt": data.get("created_at"),
+        "updatedAt": data.get("updated_at"),
+        "status": data.get("status"),
+    }
 
 
 def get_experiment(db_path: str, experiment_id: int) -> dict[str, Any] | None:
@@ -238,17 +264,8 @@ def get_experiment(db_path: str, experiment_id: int) -> dict[str, Any] | None:
         row = cur.fetchone()
         if not row:
             return None
-            
-        return {
-            "id": row[0],
-            "name": row[1],
-            "description": row[2],
-            "config": json.loads(row[3]),
-            "baselineId": row[4],
-            "createdAt": row[5],
-            "updatedAt": row[6],
-            "status": row[7],
-        }
+
+        return _serialize_experiment(row)
     finally:
         conn.close()
 
@@ -278,20 +295,7 @@ def list_experiments(db_path: str, status: str | None = None) -> list[dict[str, 
                 "FROM experiments ORDER BY created_at DESC"
             )
         
-        experiments = []
-        for row in cur.fetchall():
-            experiments.append({
-                "id": row[0],
-                "name": row[1],
-                "description": row[2],
-                "config": json.loads(row[3]),
-                "baselineId": row[4],
-                "createdAt": row[5],
-                "updatedAt": row[6],
-                "status": row[7],
-            })
-        
-        return experiments
+        return [_serialize_experiment(row) for row in cur.fetchall()]
     finally:
         conn.close()
 
@@ -322,21 +326,22 @@ def get_experiment_runs(db_path: str, experiment_id: int) -> list[dict[str, Any]
         
         runs = []
         for row in cur.fetchall():
+            data = _row_to_mapping(row)
             runs.append({
-                "id": row[0],
-                "artifactCount": row[1],
-                "truePositives": row[2],
-                "falsePositives": row[3],
-                "trueNegatives": row[4],
-                "falseNegatives": row[5],
-                "precision": row[6],
-                "recall": row[7],
-                "f1Score": row[8],
-                "accuracy": row[9],
-                "startedAt": row[10],
-                "completedAt": row[11],
-                "status": row[12],
-                "metadata": json.loads(row[13]) if row[13] else None,
+                "id": data["id"],
+                "artifactCount": data["artifact_count"],
+                "truePositives": data["true_positives"],
+                "falsePositives": data["false_positives"],
+                "trueNegatives": data["true_negatives"],
+                "falseNegatives": data["false_negatives"],
+                "precision": data["precision"],
+                "recall": data["recall"],
+                "f1Score": data["f1_score"],
+                "accuracy": data["accuracy"],
+                "startedAt": data["started_at"],
+                "completedAt": data["completed_at"],
+                "status": data["status"],
+                "metadata": json.loads(data["metadata_json"]) if data.get("metadata_json") else None,
             })
         
         return runs
@@ -392,28 +397,31 @@ def compare_experiments(
                 "error": "One or both experiments have no completed runs"
             }
         
+        data_a = _row_to_mapping(row_a)
+        data_b = _row_to_mapping(row_b)
+        
         # Calculate deltas
-        precision_delta = row_b[0] - row_a[0] if row_a[0] and row_b[0] else 0.0
-        recall_delta = row_b[1] - row_a[1] if row_a[1] and row_b[1] else 0.0
-        f1_delta = row_b[2] - row_a[2] if row_a[2] and row_b[2] else 0.0
-        accuracy_delta = row_b[3] - row_a[3] if row_a[3] and row_b[3] else 0.0
+        precision_delta = (data_b["precision"] or 0.0) - (data_a["precision"] or 0.0)
+        recall_delta = (data_b["recall"] or 0.0) - (data_a["recall"] or 0.0)
+        f1_delta = (data_b["f1_score"] or 0.0) - (data_a["f1_score"] or 0.0)
+        accuracy_delta = (data_b["accuracy"] or 0.0) - (data_a["accuracy"] or 0.0)
         
         return {
             "experimentA": {
                 "id": experiment_id_a,
-                "precision": row_a[0],
-                "recall": row_a[1],
-                "f1Score": row_a[2],
-                "accuracy": row_a[3],
-                "artifactCount": row_a[4],
+                "precision": data_a["precision"],
+                "recall": data_a["recall"],
+                "f1Score": data_a["f1_score"],
+                "accuracy": data_a["accuracy"],
+                "artifactCount": data_a["artifact_count"],
             },
             "experimentB": {
                 "id": experiment_id_b,
-                "precision": row_b[0],
-                "recall": row_b[1],
-                "f1Score": row_b[2],
-                "accuracy": row_b[3],
-                "artifactCount": row_b[4],
+                "precision": data_b["precision"],
+                "recall": data_b["recall"],
+                "f1Score": data_b["f1_score"],
+                "accuracy": data_b["accuracy"],
+                "artifactCount": data_b["artifact_count"],
             },
             "deltas": {
                 "precision": precision_delta,
@@ -462,30 +470,28 @@ def add_discovery_label(
             row = cur.fetchone()
             
             if row:
-                # Update existing
+                row_dict = _row_to_mapping(row)
+                label_id = int(row_dict["id"])
                 conn.execute(
                     """
                     UPDATE discovery_labels
                     SET label = ?, confidence = ?, annotator = ?, notes = ?, updated_at = ?
                     WHERE id = ?
                     """,
-                    (label, confidence, annotator, notes, now, row[0])
+                    (label, confidence, annotator, notes, now, label_id)
                 )
-                label_id = int(row[0])
                 log.info("Updated label %d for artifact %d: %s", label_id, artifact_id, label)
             else:
-                # Insert new
-                cur = conn.execute(
+                label_id = _insert_and_return_id(
+                    conn,
+                    db_path,
                     """
                     INSERT INTO discovery_labels
                     (artifact_id, label, confidence, annotator, notes, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (artifact_id, label, confidence, annotator, notes, now, now)
+                    (artifact_id, label, confidence, annotator, notes, now, now),
                 )
-                new_label_id = cur.lastrowid
-                assert new_label_id is not None, "Failed to create discovery label"
-                label_id = new_label_id
                 log.info("Created label %d for artifact %d: %s", label_id, artifact_id, label)
         
         return label_id
@@ -531,17 +537,18 @@ def get_labeled_artifacts(db_path: str, label: str | None = None) -> list[dict[s
         
         labels = []
         for row in cur.fetchall():
+            data = _row_to_mapping(row)
             labels.append({
-                "id": row[0],
-                "artifactId": row[1],
-                "label": row[2],
-                "confidence": row[3],
-                "annotator": row[4],
-                "notes": row[5],
-                "createdAt": row[6],
-                "updatedAt": row[7],
-                "artifactTitle": row[8],
-                "artifactSource": row[9],
+                "id": data["id"],
+                "artifactId": data["artifact_id"],
+                "label": data["label"],
+                "confidence": data["confidence"],
+                "annotator": data["annotator"],
+                "notes": data["notes"],
+                "createdAt": data["created_at"],
+                "updatedAt": data["updated_at"],
+                "artifactTitle": data["title"],
+                "artifactSource": data["source"],
             })
         
         return labels

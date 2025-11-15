@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import typer
 
 from ..config import load_settings
@@ -83,6 +85,24 @@ def pipeline(
         notify_hours=notify_hours,
     )
     console.print(f"Pipeline: {stats}")
+
+
+@app.command()
+def daemon(
+    ctx: typer.Context,
+    interval: int = typer.Option(300, "--interval", "-i", help="Run pipeline every N seconds"),
+) -> None:
+    """Continuously run the pipeline on a fixed interval."""
+    config_path = get_config_path(ctx)
+    s = load_settings(config_path)
+    console.print(f"Starting daemon (interval: {interval}s)...")
+    try:
+        while True:
+            stats = run_pipeline(s)
+            console.print(f"Pipeline run: {stats}")
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        console.print("Daemon stopped")
 
 
 @app.command()

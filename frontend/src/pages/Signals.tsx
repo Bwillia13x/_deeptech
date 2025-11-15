@@ -1,12 +1,9 @@
 import React from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import SignalsTable from "../components/SignalsTable";
-import EmptyState, { EmptySignals } from "../components/EmptyState";
 
 export default function Signals() {
-  const navigate = useNavigate();
-  
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-2">

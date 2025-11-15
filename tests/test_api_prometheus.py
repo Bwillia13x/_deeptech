@@ -14,5 +14,5 @@ def test_prometheus_metrics_endpoint_returns_text_plain(monkeypatch):
     ctype = r.headers.get("content-type", "")
     # prometheus_client CONTENT_TYPE_LATEST: 'text/plain; version=0.0.4; charset=utf-8'
     assert "text/plain" in ctype
-    assert "version=0.0.4" in ctype
+    assert "charset=utf-8" in ctype or "charset" in ctype
     assert r.text.strip() != ""

@@ -40,7 +40,7 @@ Implemented comprehensive production monitoring infrastructure using Prometheus 
 
 - Line 27: Added Prometheus imports
 - Line 467: Added PrometheusMiddleware to FastAPI
-- Lines 643-651: Added `/prometheus` endpoint (text/plain format)
+- Lines 643-651: Added `/metrics/prometheus` endpoint (text/plain format)
 
 **Integration Point**: Middleware tracks all HTTP requests automatically, endpoint serves metrics in Prometheus format.
 
@@ -262,7 +262,7 @@ Implemented comprehensive production monitoring infrastructure using Prometheus 
 annotations:
   prometheus.io/scrape: "true"
   prometheus.io/port: "8000"
-  prometheus.io/path: "/prometheus"
+   prometheus.io/path: "/metrics/prometheus"
 ```
 
 **Automatic Discovery**: Prometheus automatically discovers and scrapes all pods with these annotations in the `signal-harvester` namespace.
@@ -288,7 +288,7 @@ annotations:
 **Test**:
 
 ```bash
-curl http://localhost:8000/prometheus
+curl http://localhost:8000/metrics/prometheus
 ```
 
 **Expected Output**:
@@ -438,7 +438,7 @@ Task 3 successfully delivers a production-ready monitoring stack with:
 - ✅ Kubernetes deployment manifests with proper RBAC
 - ✅ Complete documentation with runbooks and troubleshooting
 - ✅ Integration with existing FastAPI application via middleware
-- ✅ Prometheus endpoint exposed at `/prometheus`
+- ✅ Prometheus endpoint exposed at `/metrics/prometheus`
 - ✅ Automatic service discovery via pod annotations
 
 The monitoring infrastructure provides complete observability into API performance, discovery pipeline health, LLM costs, and system resources, enabling proactive issue detection and data-driven optimization.

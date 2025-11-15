@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple, cast
 
 import numpy as np
 
@@ -258,6 +258,110 @@ def find_name_variations(name: str) -> List[str]:
     return list(set(variations))  # Remove duplicates
 
 
+def _find_candidate_matches_internal(
+    entity: Dict[str, Any],
+    all_entities: List[Dict[str, Any]],
+    threshold: float,
+    weights: Dict[str, float] | None,
+    include_components: bool,
+) -> List[Tuple[Any, ...]]:
+    """Shared implementation for candidate search with optional breakdown output."""
+    if weights is None:
+        weights = {
+            "name": 0.50,
+            "affiliation": 0.30,
+            "domain": 0.15,
+            "accounts": 0.05,
+        }
+
+    candidates: List[Tuple[Any, ...]] = []
+
+    entity_name = entity["name"]
+    entity_type = entity["type"]
+    entity_desc = entity.get("description") or ""
+    entity_url = entity.get("homepage_url") or ""
+    entity_accounts = entity.get("accounts", [])
+
+    entity_affiliation = _extract_affiliation(entity_desc, entity_accounts)
+    name_variations = find_name_variations(entity_name)
+
+    for candidate in all_entities:
+        if candidate["id"] == entity["id"]:
+            continue
+        if candidate["type"] != entity_type:
+            continue
+
+        candidate_name = candidate["name"]
+        candidate_desc = candidate.get("description") or ""
+        candidate_url = candidate.get("homepage_url") or ""
+        candidate_accounts = candidate.get("accounts", [])
+        candidate_affiliation = _extract_affiliation(candidate_desc, candidate_accounts)
+
+        name_sim = 0.0
+        for variation in name_variations:
+            similarity = compute_name_similarity(variation, candidate_name)
+            name_sim = max(name_sim, similarity)
+
+        candidate_variations = find_name_variations(candidate_name)
+        for variation in candidate_variations:
+            similarity = compute_name_similarity(entity_name, variation)
+            name_sim = max(name_sim, similarity)
+
+        affiliation_sim = 0.0
+        if entity_affiliation and candidate_affiliation:
+            affiliation_sim = compute_affiliation_similarity(entity_affiliation, candidate_affiliation)
+        elif entity_affiliation or candidate_affiliation:
+            affiliation_sim = 0.2
+
+        domain_sim = 0.0
+        if entity_url and candidate_url:
+            if entity_url == candidate_url:
+                domain_sim = 1.0
+            else:
+                entity_domain = _extract_domain(entity_url)
+                candidate_domain = _extract_domain(candidate_url)
+                if entity_domain and candidate_domain and entity_domain == candidate_domain:
+                    domain_sim = 0.9
+                elif entity_domain and candidate_domain:
+                    if entity_domain in candidate_domain or candidate_domain in entity_domain:
+                        domain_sim = 0.7
+
+        account_sim = 0.0
+        if entity_accounts and candidate_accounts:
+            entity_handles = {(acc.get("platform"), acc.get("handle")) for acc in entity_accounts}
+            candidate_handles = {(acc.get("platform"), acc.get("handle")) for acc in candidate_accounts}
+            overlap = len(entity_handles & candidate_handles)
+            if overlap > 0:
+                account_sim = 1.0
+            else:
+                entity_platforms = {acc.get("platform") for acc in entity_accounts}
+                candidate_platforms = {acc.get("platform") for acc in candidate_accounts}
+                if entity_platforms & candidate_platforms:
+                    account_sim = 0.1
+
+        weighted_sim = (
+            weights.get("name", 0.50) * name_sim
+            + weights.get("affiliation", 0.30) * affiliation_sim
+            + weights.get("domain", 0.15) * domain_sim
+            + weights.get("accounts", 0.05) * account_sim
+        )
+
+        if weighted_sim >= threshold:
+            if include_components:
+                components = {
+                    "name": round(float(name_sim), 4),
+                    "affiliation": round(float(affiliation_sim), 4),
+                    "domain": round(float(domain_sim), 4),
+                    "accounts": round(float(account_sim), 4),
+                }
+                candidates.append((candidate, weighted_sim, components))
+            else:
+                candidates.append((candidate, weighted_sim))
+
+    candidates.sort(key=lambda x: x[1], reverse=True)
+    return candidates
+
+
 def find_candidate_matches(
     entity: Dict[str, Any],
     all_entities: List[Dict[str, Any]],
@@ -354,120 +458,31 @@ def find_candidate_matches(
         List of (candidate_entity, weighted_similarity_score) tuples, sorted by score descending.
         Only candidates with score >= threshold are returned.
     """
-    if weights is None:
-        # Default weights optimized for >90% precision
-        # Derived from experimentation with ground truth data
-        weights = {
-            "name": 0.50,          # Primary signal - must match well
-            "affiliation": 0.30,   # Strong disambiguator for common names
-            "domain": 0.15,        # Strong signal when available (often missing)
-            "accounts": 0.05,      # Weak signal - used as tie-breaker
-        }
-    
-    candidates = []
-    
-    # Extract entity fields
-    entity_name = entity["name"]
-    entity_type = entity["type"]
-    entity_desc = entity.get("description") or ""
-    entity_url = entity.get("homepage_url") or ""
-    entity_accounts = entity.get("accounts", [])
-    
-    # Extract affiliation from description field or account metadata
-    entity_affiliation = _extract_affiliation(entity_desc, entity_accounts)
-    
-    # Generate name variations for robust matching
-    # Handles: "John Smith" ↔ "Smith, John" ↔ "J. Smith" ↔ "John S."
-    name_variations = find_name_variations(entity_name)
-    
-    for candidate in all_entities:
-        # STEP 1: Filter by identity and type
-        if candidate["id"] == entity["id"]:
-            continue  # Skip self-comparison
-        
-        if candidate["type"] != entity_type:
-            continue  # Different entity types (person vs organization)
-        
-        # Extract candidate fields
-        candidate_name = candidate["name"]
-        candidate_desc = candidate.get("description") or ""
-        candidate_url = candidate.get("homepage_url") or ""
-        candidate_accounts = candidate.get("accounts", [])
-        candidate_affiliation = _extract_affiliation(candidate_desc, candidate_accounts)
-        
-        # STEP 2: Compute name similarity (bidirectional with variations)
-        name_sim = 0.0
-        
-        # Forward: entity variations vs candidate name
-        for variation in name_variations:
-            similarity = compute_name_similarity(variation, candidate_name)
-            name_sim = max(name_sim, similarity)  # Take best match
-        
-        # Reverse: candidate variations vs entity name
-        candidate_variations = find_name_variations(candidate_name)
-        for variation in candidate_variations:
-            similarity = compute_name_similarity(entity_name, variation)
-            name_sim = max(name_sim, similarity)  # Take best match
-        
-        # STEP 3: Compute affiliation similarity
-        affiliation_sim = 0.0
-        if entity_affiliation and candidate_affiliation:
-            # Both have affiliations - compute embedding similarity
-            affiliation_sim = compute_affiliation_similarity(entity_affiliation, candidate_affiliation)
-        elif entity_affiliation or candidate_affiliation:
-            # One has affiliation, other doesn't - weak negative signal
-            # Partial credit (0.2) to avoid penalizing missing data too heavily
-            affiliation_sim = 0.2
-        # else: both missing - affiliation_sim = 0.0 (neutral)
-        
-        # STEP 4: Compute domain/URL similarity
-        domain_sim = 0.0
-        if entity_url and candidate_url:
-            # Exact URL match - perfect signal
-            if entity_url == candidate_url:
-                domain_sim = 1.0
-            else:
-                # Extract domain from URL (e.g., "https://cs.stanford.edu" → "stanford.edu")
-                entity_domain = _extract_domain(entity_url)
-                candidate_domain = _extract_domain(candidate_url)
-                if entity_domain and candidate_domain and entity_domain == candidate_domain:
-                    domain_sim = 0.9
-                elif entity_domain and candidate_domain:
-                    # Partial domain match (e.g., csail.mit.edu vs mit.edu)
-                    if entity_domain in candidate_domain or candidate_domain in entity_domain:
-                        domain_sim = 0.7
-        
-        # 4. Compute account overlap
-        account_sim = 0.0
-        if entity_accounts and candidate_accounts:
-            # Check for overlapping platforms/handles
-            entity_handles = {(acc.get("platform"), acc.get("handle")) for acc in entity_accounts}
-            candidate_handles = {(acc.get("platform"), acc.get("handle")) for acc in candidate_accounts}
-            overlap = len(entity_handles & candidate_handles)
-            if overlap > 0:
-                account_sim = 1.0  # Any account overlap is strong signal
-            else:
-                # Same platform but different handles - weak negative
-                entity_platforms = {acc.get("platform") for acc in entity_accounts}
-                candidate_platforms = {acc.get("platform") for acc in candidate_accounts}
-                if entity_platforms & candidate_platforms:
-                    account_sim = 0.1
-        
-        # Compute weighted similarity
-        weighted_sim = (
-            weights.get("name", 0.50) * name_sim +
-            weights.get("affiliation", 0.30) * affiliation_sim +
-            weights.get("domain", 0.15) * domain_sim +
-            weights.get("accounts", 0.05) * account_sim
-        )
-        
-        if weighted_sim >= threshold:
-            candidates.append((candidate, weighted_sim))
-    
-    # Sort by similarity (descending)
-    candidates.sort(key=lambda x: x[1], reverse=True)
-    
-    return candidates
+    matches = _find_candidate_matches_internal(
+        entity,
+        all_entities,
+        threshold,
+        weights,
+        include_components=False,
+    )
+    return cast(List[Tuple[Dict[str, Any], float]], matches)
+
+
+def find_candidate_matches_detailed(
+    entity: Dict[str, Any],
+    all_entities: List[Dict[str, Any]],
+    threshold: float = 0.75,
+    weights: Dict[str, float] | None = None
+) -> List[Tuple[Dict[str, Any], float, Dict[str, float]]]:
+    """Find candidate matches and include similarity component breakdown."""
+    matches = _find_candidate_matches_internal(
+        entity,
+        all_entities,
+        threshold,
+        weights,
+        include_components=True,
+    )
+    return cast(List[Tuple[Dict[str, Any], float, Dict[str, float]]], matches)
 
 
 def _extract_affiliation(description: str, accounts: List[Dict[str, Any]]) -> str:

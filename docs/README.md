@@ -23,6 +23,7 @@ For a single end-to-end project health check, from the `signal-harvester` direct
 - [DEPLOYMENT.md](DEPLOYMENT.md) - Production deployment guide
 - [OPERATIONS.md](OPERATIONS.md) - Day-to-day operations guide
 - [BACKUP.md](BACKUP.md) - Backup and restore procedures
+- [PHASE_FIVE_SOURCE_INTEGRATIONS.md](PHASE_FIVE_SOURCE_INTEGRATIONS.md) - Extended source integration strategy
 
 ## 🚀 Quick Start
 

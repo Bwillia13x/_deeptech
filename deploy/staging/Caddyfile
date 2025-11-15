@@ -1,0 +1,54 @@
+{
+    email {$TLS_EMAIL}
+    acme_ca {$ACME_CA:https://acme-v02.api.letsencrypt.org/directory}
+    servers :443 {
+        protocols h1 h2 h3
+    }
+    servers :80 {
+        protocols h1 h2 h3
+    }
+}
+
+{$API_HOST} {
+    encode gzip zstd
+    tls {$TLS_CERT_MODE}
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "no-referrer"
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    }
+    reverse_proxy signal-harvester:8000 {
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+        header_up X-Real-IP {remote}
+    }
+}
+
+{$GRAFANA_HOST} {
+    encode gzip zstd
+    tls {$TLS_CERT_MODE}
+    basicauth * {
+        {$GRAFANA_BASIC_AUTH_USER} {$GRAFANA_BASIC_AUTH_HASH}
+    }
+    reverse_proxy grafana:3000
+}
+
+{$PROMETHEUS_HOST} {
+    encode gzip zstd
+    tls {$TLS_CERT_MODE}
+    basicauth * {
+        {$PROMETHEUS_BASIC_AUTH_USER} {$PROMETHEUS_BASIC_AUTH_HASH}
+    }
+    reverse_proxy prometheus:9090
+}
+
+{$ALERTMANAGER_HOST} {
+    encode gzip zstd
+    tls {$TLS_CERT_MODE}
+    basicauth * {
+        {$ALERTMANAGER_BASIC_AUTH_USER} {$ALERTMANAGER_BASIC_AUTH_HASH}
+    }
+    reverse_proxy alertmanager:9093
+}

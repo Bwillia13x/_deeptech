@@ -28,7 +28,7 @@ scrape_configs:
         labels:
           component: "api"
           service: "signal-harvester"
-    metrics_path: "/prometheus"
+    metrics_path: "/metrics/prometheus"
     scrape_interval: 15s
     scrape_timeout: 10s
 

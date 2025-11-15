@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -32,9 +32,11 @@ import {
   GitCompare,
   Target
 } from "lucide-react";
+import { cn } from "../lib/utils";
 
 interface ComparativeVisualizationProps {
   className?: string;
+  spotlightTopic?: string;
 }
 
 interface ComparisonItem {
@@ -51,8 +53,64 @@ interface MetricComparison {
 }
 
 const COLORS = ["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899"];
+const MAX_COMPARISONS = 6;
 
-export function ComparativeVisualization({ className }: ComparativeVisualizationProps) {
+type ColorClassMeta = {
+  dot: string;
+  chipBorder: string;
+  chipBg: string;
+  text: string;
+};
+
+const COLOR_CLASS_MAP: Record<string, ColorClassMeta> = {
+  "#3b82f6": {
+    dot: "bg-blue-500",
+    chipBorder: "border-blue-500",
+    chipBg: "bg-blue-500/10",
+    text: "text-blue-600"
+  },
+  "#ef4444": {
+    dot: "bg-red-500",
+    chipBorder: "border-red-500",
+    chipBg: "bg-red-500/10",
+    text: "text-red-600"
+  },
+  "#10b981": {
+    dot: "bg-emerald-500",
+    chipBorder: "border-emerald-500",
+    chipBg: "bg-emerald-500/10",
+    text: "text-emerald-600"
+  },
+  "#f59e0b": {
+    dot: "bg-amber-500",
+    chipBorder: "border-amber-500",
+    chipBg: "bg-amber-500/10",
+    text: "text-amber-600"
+  },
+  "#8b5cf6": {
+    dot: "bg-violet-500",
+    chipBorder: "border-violet-500",
+    chipBg: "bg-violet-500/10",
+    text: "text-violet-600"
+  },
+  "#ec4899": {
+    dot: "bg-pink-500",
+    chipBorder: "border-pink-500",
+    chipBg: "bg-pink-500/10",
+    text: "text-pink-600"
+  }
+};
+
+const DEFAULT_COLOR_META: ColorClassMeta = {
+  dot: "bg-primary",
+  chipBorder: "border-primary",
+  chipBg: "bg-primary/10",
+  text: "text-primary"
+};
+
+const getColorMeta = (color: string): ColorClassMeta => COLOR_CLASS_MAP[color] ?? DEFAULT_COLOR_META;
+
+export function ComparativeVisualization({ className, spotlightTopic }: ComparativeVisualizationProps) {
   const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
   const [topicSearch, setTopicSearch] = useState("");
   const [comparisonType, setComparisonType] = useState<"timeline" | "metrics" | "distribution">("timeline");
@@ -69,32 +127,52 @@ export function ComparativeVisualization({ className }: ComparativeVisualization
     !selectedTopics.includes(topic.name)
   ) || [];
 
-  const addTopicComparison = async (topicName: string) => {
-    if (selectedTopics.includes(topicName) || comparisons.length >= 6) return;
+  const addTopicComparison = useCallback(async (topicName: string) => {
+    if (selectedTopics.includes(topicName) || comparisons.length >= MAX_COMPARISONS) return;
 
-    const color = COLORS[comparisons.length % COLORS.length];
-
-    // Fetch timeline data for the topic
     try {
       const timelineData = await getTopicTimeline({
         topic: topicName,
         days: timeWindow
       });
 
-      const newComparison: ComparisonItem = {
-        id: `topic-${topicName}`,
-        type: "topic",
-        name: topicName,
-        color,
-        data: timelineData
-      };
+      let added = false;
+      setComparisons(prev => {
+        if (prev.length >= MAX_COMPARISONS || prev.some((item) => item.name === topicName)) {
+          return prev;
+        }
 
-      setComparisons(prev => [...prev, newComparison]);
-      setSelectedTopics(prev => [...prev, topicName]);
+        const color = COLORS[prev.length % COLORS.length];
+        const newComparison: ComparisonItem = {
+          id: `topic-${topicName}`,
+          type: "topic",
+          name: topicName,
+          color,
+          data: timelineData
+        };
+
+        added = true;
+        return [...prev, newComparison];
+      });
+
+      if (added) {
+        setSelectedTopics(prev => (
+          prev.includes(topicName) ? prev : [...prev, topicName]
+        ));
+      }
     } catch (error) {
       console.error("Error fetching topic timeline:", error);
     }
-  };
+  }, [selectedTopics, comparisons.length, timeWindow]);
+
+  useEffect(() => {
+    if (!spotlightTopic || selectedTopics.includes(spotlightTopic)) {
+      return;
+    }
+
+    void addTopicComparison(spotlightTopic);
+    // Depend on spotlightTopic and selection state to avoid duplicate inserts
+  }, [spotlightTopic, selectedTopics, addTopicComparison]);
 
   const removeComparison = (id: string) => {
     const comparison = comparisons.find(c => c.id === id);
@@ -219,31 +297,32 @@ export function ComparativeVisualization({ className }: ComparativeVisualization
           {/* Selected Comparisons */}
           {comparisons.length > 0 && (
             <div className="flex flex-wrap gap-2 pt-2 border-t">
-              {comparisons.map(comp => (
-                <Badge
-                  key={comp.id}
-                  variant="outline"
-                  className="flex items-center gap-1"
-                  style={{
-                    borderColor: comp.color,
-                    backgroundColor: `${comp.color}20`
-                  }}
-                >
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: comp.color }}
-                  />
-                  {comp.name}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-4 w-4 p-0 ml-1 hover:bg-transparent"
-                    onClick={() => removeComparison(comp.id)}
+              {comparisons.map(comp => {
+                const colorMeta = getColorMeta(comp.color);
+                return (
+                  <Badge
+                    key={comp.id}
+                    variant="outline"
+                    className={cn(
+                      "flex items-center gap-1",
+                      colorMeta.chipBorder,
+                      colorMeta.chipBg,
+                      colorMeta.text
+                    )}
                   >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </Badge>
-              ))}
+                    <span className={cn("w-2 h-2 rounded-full", colorMeta.dot)} />
+                    {comp.name}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-4 w-4 p-0 ml-1 hover:bg-transparent"
+                      onClick={() => removeComparison(comp.id)}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </Badge>
+                );
+              })}
             </div>
           )}
         </div>
@@ -374,11 +453,14 @@ export function ComparativeVisualization({ className }: ComparativeVisualization
                     <thead>
                       <tr className="border-b">
                         <th className="text-left py-2">Metric</th>
-                        {comparisons.map(comp => (
-                          <th key={comp.id} className="text-center py-2" style={{ color: comp.color }}>
-                            {comp.name}
-                          </th>
-                        ))}
+                        {comparisons.map(comp => {
+                          const colorMeta = getColorMeta(comp.color);
+                          return (
+                            <th key={comp.id} className={cn("text-center py-2", colorMeta.text)}>
+                              {comp.name}
+                            </th>
+                          );
+                        })}
                       </tr>
                     </thead>
                     <tbody>
@@ -404,6 +486,7 @@ export function ComparativeVisualization({ className }: ComparativeVisualization
 
                 <div className="grid gap-4 md:grid-cols-2">
                   {comparisons.map(comp => {
+                    const colorMeta = getColorMeta(comp.color);
                     // Generate mock distribution data
                     const distribution = Array.from({ length: 10 }, (_, i) => ({
                       range: `${i * 10}-${(i + 1) * 10}`,
@@ -414,10 +497,7 @@ export function ComparativeVisualization({ className }: ComparativeVisualization
                       <Card key={comp.id}>
                         <CardHeader>
                           <CardTitle className="text-sm font-medium flex items-center gap-2">
-                            <span
-                              className="w-3 h-3 rounded-full"
-                              style={{ backgroundColor: comp.color }}
-                            />
+                            <span className={cn("w-3 h-3 rounded-full", colorMeta.dot)} />
                             {comp.name}
                           </CardTitle>
                         </CardHeader>

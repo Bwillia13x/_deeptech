@@ -2,15 +2,13 @@ import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Badge } from "../components/ui/badge";
-import { RefreshCw, Filter, TrendingUp, Users, Calendar, ExternalLink, Search } from "lucide-react";
+import { RefreshCw, Filter, TrendingUp, Users, Search } from "lucide-react";
 import { listDiscoveries, getDiscoveryStats, refreshPipeline } from "../api/discoveries";
-import { DiscoveriesListParams, Discovery } from "../types/api";
+import { DiscoveriesListParams } from "../types/api";
 import { DiscoveryCard } from "../components/DiscoveryCard";
 import { ScoreBadge } from "../components/ScoreBadge";
-import { EntityChip } from "../components/EntityChip";
 import { TopicFilter } from "../components/TopicFilter";
 import { useToast } from "../hooks/use-toast";
 import { Skeleton } from "../components/ui/skeleton";
@@ -220,13 +218,17 @@ export default function DiscoveriesPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Sources</SelectItem>
-                  <SelectItem value="arxiv">arXiv</SelectItem>
-                  <SelectItem value="github">GitHub</SelectItem>
-                  <SelectItem value="x">X/Twitter</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                <SelectItem value="all">All Sources</SelectItem>
+                <SelectItem value="arxiv">arXiv</SelectItem>
+                <SelectItem value="github">GitHub</SelectItem>
+                <SelectItem value="x">X/Twitter</SelectItem>
+                <SelectItem value="facebook">Facebook</SelectItem>
+                <SelectItem value="linkedin">LinkedIn</SelectItem>
+                <SelectItem value="reddit">Reddit</SelectItem>
+                <SelectItem value="hackernews">Hacker News</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Sort By</label>

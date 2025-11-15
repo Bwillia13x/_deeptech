@@ -37,6 +37,15 @@ async function request<T>(method: string, path: string, opts: RequestOptions = {
     ...(opts.headers ?? {})
   };
 
+  if (env.API_KEY) {
+    const hasCustomApiKey = Object.keys(headers).some(
+      (key) => key.toLowerCase() === "x-api-key"
+    );
+    if (!hasCustomApiKey) {
+      headers["X-API-Key"] = env.API_KEY;
+    }
+  }
+
   const res = await fetch(url, {
     method,
     headers,

@@ -337,7 +337,7 @@ open http://localhost:9090
 open http://localhost:9093
 
 # API metrics
-curl http://localhost:8000/prometheus
+curl http://localhost:8000/metrics/prometheus
 
 # Service health
 curl http://localhost:8000/health

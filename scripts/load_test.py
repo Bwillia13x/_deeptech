@@ -35,7 +35,7 @@ import random
 import time
 from datetime import datetime, timedelta
 
-from locust import HttpUser, TaskSet, between, task
+from locust import HttpUser, TaskSet, between, events, task
 
 
 class DiscoveryBehavior(TaskSet):

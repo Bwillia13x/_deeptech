@@ -34,7 +34,7 @@ Signal Harvester is a production-ready intelligence platform that can be deploye
 
 ### Architecture Components
 
-```
+```text
 ┌─────────────────┐
 │   Load Balancer │
 │   (Ingress/ALB) │
@@ -390,7 +390,7 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
-        prometheus.io/path: "/metrics"
+        prometheus.io/path: "/metrics/prometheus"
     spec:
       containers:
       - name: api
@@ -450,6 +450,67 @@ spec:
 ---
 
 ## Monitoring Setup
+
+### Staging + Monitoring Bootstrap (Docker Compose)
+
+`docker-compose.staging.yml` now packages the entire staging footprint (API, scheduler, PostgreSQL, Redis, Prometheus, Grafana, Alertmanager, Node Exporter, and the Caddy TLS reverse proxy) so one compose file mirrors the production topology.
+
+1. Copy the new sample env file, escape bcrypt hashes with `$$`, and supply TLS hostnames:
+
+  ```bash
+  cp .env.staging.example .env.staging
+  caddy hash-password --algorithm bcrypt --rounds 12
+  # paste the hashed value into GRAFANA|PROMETHEUS|ALERTMANAGER_BASIC_AUTH_HASH
+  ```
+
+  Set `TLS_CERT_MODE=internal` plus `ACME_CA=internal` for laptop rehearsals (Caddy will mint self-signed certs) and switch both to real ACME endpoints + emails for internet-facing staging/prod.
+
+1. Launch the stack (Docker Desktop 4.24+):
+
+  ```bash
+  docker compose --env-file .env.staging -f docker-compose.staging.yml up -d
+  docker compose --env-file .env.staging -f docker-compose.staging.yml ps
+  ```
+
+  The Caddyfile at `deploy/staging/Caddyfile` automatically provisions certificates via Let’s Encrypt, injects HSTS and security headers, and fronts Prometheus/Grafana/Alertmanager with basic auth. Update `API_HOST`, `GRAFANA_HOST`, `PROMETHEUS_HOST`, `ALERTMANAGER_HOST`, and `TLS_EMAIL` inside `.env.staging` before starting the proxy.
+
+1. Validate endpoints once the containers are healthy:
+
+  ```bash
+  curl -sk https://$API_HOST/health/ready | jq '.status'
+  curl -sk -u admin:****** https://$GRAFANA_HOST/api/health
+  curl -sk -u metrics:****** https://$PROMETHEUS_HOST/-/healthy
+  curl -sk -u alerts:****** https://$ALERTMANAGER_HOST/-/healthy
+  ```
+
+1. Tear everything down with:
+
+  ```bash
+  docker compose --env-file .env.staging -f docker-compose.staging.yml down
+  ```
+
+  Or use the new Makefile helpers (they respect `STAGING_ENV_FILE` if you store secrets elsewhere):
+
+  ```bash
+  make staging-stack-up
+  make staging-stack-down
+  ```
+
+For a slimmer monitoring-only stack you can continue to use `make staging-up` (wraps `docker-compose.monitoring.yml`), but the staging compose file should be used for realistic load tests, TLS rehearsal, and end-to-end drills.
+
+### Automated Load-Test Baseline
+
+Baseline Phase Three performance requirements directly from CI laptops or staging nodes without memorizing the Locust CLI:
+
+```bash
+# Default: 100 users, spawn rate 10/s, 5 minute run, HTML report under results/
+make load-test
+
+# Override knobs ad-hoc
+LOCUST_USERS=250 LOCUST_RUN_TIME=10m make load-test
+```
+
+The target wraps `locust -f scripts/load_test.py` in headless mode, emits progress to stdout, and saves the HTML report to `$(LOCUST_REPORT)` (defaults to `results/load_test_report.html`). Ensure `pip install locust` (already included in the dev extras) and set `HARVEST_API_KEY` if the API enforces authentication.
 
 ### Prometheus Metrics
 
@@ -523,7 +584,7 @@ groups:
    - Azure Database for PostgreSQL
    - Self-hosted with streaming replication
 
-2. **Create database**:
+1. **Create database**:
 
 ```sql
 CREATE DATABASE signal_harvester;
@@ -531,7 +592,7 @@ CREATE USER harvest_user WITH PASSWORD 'secure_password';
 GRANT ALL PRIVILEGES ON DATABASE signal_harvester TO harvest_user;
 ```
 
-3. **Run migrations**:
+1. **Run migrations**:
 
 ```bash
 # Set connection string
@@ -539,9 +600,14 @@ export DATABASE_URL=postgresql://harvest_user:password@db-host:5432/signal_harve
 
 # Apply migrations
 alembic upgrade head
+
+# Or use the new helpers
+PG_URL=$DATABASE_URL make migrate-postgres-dry-run   # smoke test
+PG_URL=$DATABASE_URL make migrate-postgres          # live data copy
+PG_URL=$DATABASE_URL make validate-postgres         # schema + row-count check
 ```
 
-4. **Configure connection pooling**:
+1. **Configure connection pooling**:
 
 ```yaml
 # config/settings.production.yaml
@@ -581,7 +647,7 @@ work_mem = 32MB
    - Azure Cache for Redis
    - Self-hosted Redis cluster
 
-2. **Configure Signal Harvester**:
+1. **Configure Signal Harvester**:
 
 ```yaml
 # config/settings.production.yaml
@@ -600,7 +666,7 @@ rate_limiting:
   redis_db: 1  # Separate database for rate limiting
 ```
 
-3. **Redis performance settings** (`redis.conf`):
+1. **Redis performance settings** (`redis.conf`):
 
 ```conf
 maxmemory 8gb
@@ -703,7 +769,7 @@ rate_limiting:
 
 Responses include rate limit headers:
 
-```
+```text
 X-RateLimit-Limit: 1000
 X-RateLimit-Remaining: 998
 X-RateLimit-Reset: 1699876543
@@ -788,10 +854,12 @@ spec:
 ### Vertical Scaling
 
 **Database**:
+
 - Scale to 8-16 vCPUs, 32-64 GB RAM for high load
 - Add read replicas for read-heavy workloads
 
 **Redis**:
+
 - Scale to 4-8 vCPUs, 16-32 GB RAM for large caches
 - Consider Redis Cluster for >50 GB data
 
@@ -801,7 +869,7 @@ spec:
 
 ### Common Issues
 
-**1. Database Connection Pool Exhausted**
+#### 1. Database Connection Pool Exhausted
 
 ```bash
 # Check pool status
@@ -815,7 +883,7 @@ database:
     max_overflow: 20
 ```
 
-**2. Redis Connection Failures**
+#### 2. Redis Connection Failures
 
 ```bash
 # Test Redis connectivity
@@ -825,7 +893,7 @@ docker exec -it redis redis-cli ping
 curl http://localhost:8000/health/ready | jq '.components[] | select(.name=="redis")'
 ```
 
-**3. Slow API Responses**
+#### 3. Slow API Responses
 
 ```bash
 # Check query performance
@@ -835,7 +903,7 @@ harvest db profile-slow-queries --threshold 100
 harvest db recommend-indexes
 ```
 
-**4. High Memory Usage**
+#### 4. High Memory Usage
 
 ```bash
 # Check memory metrics
@@ -864,7 +932,7 @@ logging:
 - **Documentation**: `docs/` directory
 - **Operations Guide**: `docs/OPERATIONS.md`
 - **Security Audit**: `docs/SECURITY_AUDIT.md`
-- **GitHub Issues**: https://github.com/your-org/signal-harvester/issues
+- **GitHub Issues**: <https://github.com/your-org/signal-harvester/issues>
 
 ---
 
@@ -890,4 +958,4 @@ logging:
 
 **Document Maintained By**: DevOps Team  
 **Next Review**: 2025-12-12  
-**Questions**: devops@example.com
+**Questions**: <devops@example.com>

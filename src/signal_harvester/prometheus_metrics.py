@@ -360,7 +360,7 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         """Process request and collect metrics."""
         # Skip metrics endpoint to avoid recursion
-        if request.url.path == "/prometheus":
+        if request.url.path == "/metrics/prometheus":
             return await call_next(request)
 
         method = request.method

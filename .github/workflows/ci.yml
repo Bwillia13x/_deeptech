@@ -175,6 +175,80 @@ jobs:
           alembic downgrade -1
           alembic upgrade head
 
+  schema-init-check:
+    name: PostgreSQL Schema Init Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/signal_harvester
+    services:
+      postgres:
+        image: postgres:15-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: signal_harvester
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install Backend Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Wait for PostgreSQL
+        run: |
+          python - <<'PY'
+          import os
+          import time
+          import psycopg2
+
+          url = os.environ["TEST_DATABASE_URL"]
+          for attempt in range(30):
+              try:
+                  conn = psycopg2.connect(url)
+              except Exception:
+                  time.sleep(2)
+              else:
+                  conn.close()
+                  break
+          else:
+              raise SystemExit("PostgreSQL did not become ready in time")
+          PY
+
+      - name: Run Schema Initialization
+        run: |
+          python scripts/init_postgres_schema.py --database-url "$TEST_DATABASE_URL"
+
+      - name: Assert Schema Version
+        run: |
+          python - <<'PY'
+          import os
+          from signal_harvester import db
+
+          url = os.environ["TEST_DATABASE_URL"]
+          version = db.get_schema_version(url)
+          if version <= 0:
+              raise SystemExit(f"Expected schema version > 0, got {version}")
+          print(f"Schema version: {version}")
+          PY
+
+      - name: Run Schema Tests
+        run: |
+          pytest tests/test_postgres_schema.py tests/test_init_postgres_schema.py -v
+
   # Code coverage reporting
   coverage:
     name: Code Coverage
@@ -297,6 +371,7 @@ jobs:
         frontend,
         docker-build,
         migration-test,
+        schema-init-check,
         coverage,
         verify-all,
         security-scan,

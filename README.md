@@ -33,9 +33,10 @@ For a single pass/fail verification of the current implementation and docs, run 
 
 ## Architecture
 
-- **Backend**: Python 3.12+ FastAPI with SQLite database
+- **Backend**: Python 3.12+ FastAPI with SQLite database (primary supported storage)
 - **Frontend**: React 18 + TypeScript + Vite + TailwindCSS
-- **Database**: SQLite with Alembic migrations
+- **Database**: SQLite with Alembic migrations (PostgreSQL requires a manual migration and is not enabled by default)
+- **Note**: If you still want PostgreSQL, the `scripts/migrate_sqlite_to_postgresql.py` script and related docs walk through the manual migration, but the app itself only runs against SQLite at this time.
 - **Container**: Docker multi-stage builds with docker-compose
 - **LLM Integration**: OpenAI, Anthropic, and xAI providers
 - **Monitoring**: Prometheus metrics, structured JSON logging, Sentry integration

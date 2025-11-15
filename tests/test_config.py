@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from signal_harvester.config import load_settings
 
 
@@ -46,3 +48,21 @@ queries: []
     assert s.app.fetch.max_results == 10
     assert s.app.llm.model == "test-model"
     assert s.app.llm.provider == "dummy"
+
+
+def test_postgres_database_url_supported(tmp_path):
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir()
+    (cfg_dir / "settings.yaml").write_text(
+        """
+app:
+  database:
+    url: "postgresql://user:pass@localhost/signals"
+queries: []
+        """,
+        encoding="utf-8",
+    )
+
+    s = load_settings(str(cfg_dir / "settings.yaml"))
+    assert s.app.database.url == "postgresql://user:pass@localhost/signals"
+    assert s.app.database_path == "postgresql://user:pass@localhost/signals"

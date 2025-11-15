@@ -70,12 +70,46 @@ class LinkedInConfig(BaseModel):
     max_results: int = 50
 
 
+class RedditConfig(BaseModel):
+    enabled: bool = False
+    subreddits: List[str] = Field(
+        default_factory=lambda: ["MachineLearning", "Futurology", "Physics"]
+    )
+    max_results: int = 25
+    search_terms: List[str] = Field(default_factory=list)
+    user_agent: str = "SignalHarvesterBot/1.0"
+
+
+class HackerNewsConfig(BaseModel):
+    enabled: bool = False
+    max_items: int = 30
+    list_types: List[str] = Field(
+        default_factory=lambda: ["topstories", "newstories"]
+    )
+    allowed_item_types: List[str] = Field(
+        default_factory=lambda: ["story", "ask", "show"]
+    )
+    include_comments: bool = False
+    api_base_url: str = "https://hacker-news.firebaseio.com/v0"
+
+
+class RedisConfig(BaseModel):
+    """Redis configuration for rate limiting and caching."""
+    host: str = "localhost"
+    port: int = 6379
+    db: int = 0
+    password: Optional[str] = None
+    enabled: bool = True
+
+
 class SourcesConfig(BaseModel):
-    x: Dict[str, Any] = Field(default_factory=dict)
-    arxiv: ArxivConfig = ArxivConfig()
-    github: GitHubConfig = GitHubConfig()
-    facebook: FacebookConfig = FacebookConfig()
-    linkedin: LinkedInConfig = LinkedInConfig()
+    x: QueryConfig = Field(default_factory=lambda: QueryConfig(name="x", query="", enabled=True))
+    arxiv: ArxivConfig = Field(default_factory=ArxivConfig)
+    github: GitHubConfig = Field(default_factory=GitHubConfig)
+    facebook: FacebookConfig = Field(default_factory=FacebookConfig)
+    linkedin: LinkedInConfig = Field(default_factory=LinkedInConfig)
+    reddit: RedditConfig = Field(default_factory=RedditConfig)
+    hacker_news: HackerNewsConfig = Field(default_factory=HackerNewsConfig)
 
 
 class DiscoveryWeights(BaseModel):
@@ -269,6 +303,7 @@ class AppConfig(BaseModel):
     llm: LLMConfig = LLMConfig()
     weights: Weights = Weights()
     sources: SourcesConfig = SourcesConfig()
+    redis: RedisConfig = Field(default_factory=RedisConfig)
     identity_resolution: IdentityResolutionConfig = IdentityResolutionConfig()
     topic_evolution: TopicEvolutionConfig = TopicEvolutionConfig()
     connection_pool: ConnectionPoolConfig = ConnectionPoolConfig()  # Deprecated: use database.pool
@@ -359,6 +394,29 @@ def load_settings(path: Optional[str] = None) -> Settings:
         s.app.llm.provider = llm_provider
     if llm_model := os.getenv("HARVEST_LLM_MODEL"):
         s.app.llm.model = llm_model
+
+    # Redis overrides for staging/production deployments
+    if redis_host := os.getenv("REDIS_HOST"):
+        s.app.redis.host = redis_host
+    if redis_port := os.getenv("REDIS_PORT"):
+        try:
+            s.app.redis.port = int(redis_port)
+        except ValueError:
+            log.warning("Invalid REDIS_PORT value '%s'; keeping default %s", redis_port, s.app.redis.port)
+    if redis_db := os.getenv("REDIS_DB"):
+        try:
+            s.app.redis.db = int(redis_db)
+        except ValueError:
+            log.warning("Invalid REDIS_DB value '%s'; keeping default %s", redis_db, s.app.redis.db)
+    if redis_password := os.getenv("REDIS_PASSWORD"):
+        s.app.redis.password = redis_password
+
+    if s.app.database.url.startswith("sqlite:///"):
+        s.app.database_path = s.app.database.url.replace("sqlite:///", "", 1)
+    elif s.app.database.url.startswith("sqlite://"):
+        s.app.database_path = s.app.database.url.replace("sqlite://", "", 1)
+    else:
+        s.app.database_path = s.app.database.url
     
     return s
 
@@ -366,4 +424,4 @@ def load_settings(path: Optional[str] = None) -> Settings:
 def get_config(path: Optional[str] = None) -> Settings:
     """Get validated settings (convenience alias for legacy callers)."""
     return load_settings(path)
-    
+

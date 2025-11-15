@@ -90,9 +90,9 @@ def temp_db(tmp_path: Path) -> Path:
 @pytest.fixture
 def backup_dir(tmp_path: Path) -> Path:
     """Create a temporary backup directory."""
-    metadata.backup_path = tmp_path / "backups"
-    metadata.backup_path.mkdir()
-    return metadata.backup_path
+    dir_path = tmp_path / "backups"
+    dir_path.mkdir()
+    return dir_path
 
 
 @pytest.fixture
@@ -112,7 +112,7 @@ def sample_backup_metadata(backup_dir: Path) -> BackupMetadata:
         backup_type=BackupType.FULL,
         timestamp=datetime.now(),
         db_path="var/app.db",
-        metadata.backup_path=str(backup_dir / "test_backup.db.gz"),
+        backup_path=str(backup_dir / "test_backup.db.gz"),
         compression=CompressionType.GZIP,
         size_bytes=1024,
         checksum="abc123def456",
@@ -128,7 +128,7 @@ def sample_backup_metadata(backup_dir: Path) -> BackupMetadata:
 class TestBackupCreation:
     """Test backup creation with different types and configurations."""
     
-    def test_create_full_backup_no_compression(self, backup_manager, test_db):
+    def test_create_full_backup_no_compression(self, backup_manager):
         """Test creating a full backup without compression."""
         metadata = backup_manager.create_backup(
             backup_type=BackupType.FULL,
@@ -136,8 +136,8 @@ class TestBackupCreation:
         )
         
         assert metadata is not None
-        assert Path(metadata.metadata.backup_path).exists()
-        assert Path(metadata.metadata.backup_path).stat().st_size > 0
+        assert Path(metadata.backup_path).exists()
+        assert Path(metadata.backup_path).stat().st_size > 0
         assert metadata.backup_type == BackupType.FULL
         assert metadata.compression == CompressionType.NONE
     
@@ -151,14 +151,14 @@ class TestBackupCreation:
         )
         
         assert metadata is not None
-        assert Path(metadata.metadata.backup_path).exists()
-        assert metadata.metadata.backup_path.endswith(".gz")
-        assert Path(metadata.metadata.backup_path).stat().st_size > 0
-        
+        assert Path(metadata.backup_path).exists()
+        assert metadata.backup_path.endswith(".gz")
+        assert Path(metadata.backup_path).stat().st_size > 0
+
         # Verify it's a valid gzip file
-        with gzip.open(metadata.metadata.backup_path, 'rb') as f:
+        with gzip.open(metadata.backup_path, "rb") as f:
             header = f.read(16)
-            assert header[:6] == b'SQLite'  # SQLite file header
+            assert header[:6] == b"SQLite"  # SQLite file header
     
     @pytest.mark.skipif(
         not hasattr(BackupManager, '_has_zstd') or not BackupManager._has_zstd,
@@ -174,9 +174,9 @@ class TestBackupCreation:
         )
         
         assert metadata is not None
-        assert Path(metadata.metadata.backup_path).exists()
-        assert metadata.metadata.backup_path.endswith(".zst")
-        assert Path(metadata.metadata.backup_path).stat().st_size > 0
+        assert Path(metadata.backup_path).exists()
+        assert metadata.backup_path.endswith(".zst")
+        assert Path(metadata.backup_path).stat().st_size > 0
     
     def test_create_backup_with_description(
         self, backup_manager: BackupManager
@@ -203,7 +203,7 @@ class TestBackupCreation:
         metadata2 = backup_manager.create_backup(BackupType.FULL)
         
         assert metadata1.backup_id != metadata2.backup_id
-        assert metadata1.metadata.backup_path != metadata2.metadata.backup_path
+        assert metadata1.backup_path != metadata2.backup_path
     
     def test_create_backup_calculates_checksum(
         self, backup_manager: BackupManager
@@ -830,7 +830,7 @@ class TestDeleteOperations:
         assert result is True
         
         # Verify deleted
-        assert not Path(metadata.metadata.backup_path).exists()
+        assert not Path(metadata.backup_path).exists()
         metadata = backup_manager.get_backup(backup_id)
         assert metadata is None
     
@@ -874,12 +874,11 @@ class TestErrorHandling:
         # Lock the database
         conn = sqlite3.connect(str(temp_db))
         conn.execute("BEGIN EXCLUSIVE")
+        backup_manager.lock_wait_seconds = 0.2
         
         try:
-            # Try to create backup (should handle lock gracefully)
-            metadata = backup_manager.create_backup(BackupType.FULL)
-            # WAL mode should still allow backup
-            assert metadata.backup_path is not None
+            with pytest.raises(RuntimeError, match="database locked"):
+                backup_manager.create_backup(BackupType.FULL)
         finally:
             conn.rollback()
             conn.close()

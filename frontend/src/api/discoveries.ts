@@ -7,7 +7,6 @@ import {
   TrendingTopicsParams,
   Entity,
   RefreshParams,
-  Paginated,
   TopicTimelinePoint
 } from "../types/api";
 import { mockListDiscoveries, mockGetTrendingTopics, mockGetEntity, mockGetTopicTimeline } from "../mocks/discoveries";

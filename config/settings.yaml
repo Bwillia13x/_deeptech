@@ -56,6 +56,25 @@ app:
       enabled: true
       organizations: [] # Add LinkedIn organization URNs, e.g., ["urn:li:organization:1337"]
       max_results: 50
+    reddit:
+      enabled: false
+      subreddits:
+        - "MachineLearning"
+        - "Futurology"
+        - "Physics"
+      max_results: 25
+      search_terms: []
+      user_agent: "SignalHarvesterBot/1.0"
+    hacker_news:
+      enabled: false
+      max_items: 30
+      list_types:
+        - "topstories"
+        - "newstories"
+      allowed_item_types:
+        - "story"
+        - "ask"
+        - "show"
 
   backup:
     # Database backup configuration

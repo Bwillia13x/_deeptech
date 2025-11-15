@@ -21,6 +21,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from .config import get_config
+from .db_connection import get_database_connection
 from .logger import get_logger
 
 log = get_logger(__name__)
@@ -58,6 +59,26 @@ class HealthCheckResponse(BaseModel):
 _start_time = time.time()
 
 
+def _row_value(row: Any, key: str | None = None) -> Any:
+    """Extract a scalar value from sqlite3.Row, tuple, or dict results."""
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        if key and key in row:
+            return row[key]
+        # fallback: first value
+        return next(iter(row.values()))
+    if key is not None:
+        try:
+            return row[key]  # type: ignore[index]
+        except Exception:
+            pass
+    try:
+        return row[0]
+    except Exception:
+        return row
+
+
 async def check_database_health() -> ComponentHealth:
     """Check database connectivity and performance.
 
@@ -68,31 +89,34 @@ async def check_database_health() -> ComponentHealth:
     status = HealthStatus.HEALTHY
     message = "Database is healthy"
 
+    db_conn = None
     try:
-        from .db import get_db
+        settings = get_config()
+        db_conn = get_database_connection(settings.app.database)
 
-        db = get_db()
+        result = db_conn.execute("SELECT 1 AS result;").fetchone()
 
-        # Simple query to check connectivity
-        result = db.execute("SELECT 1").fetchone()
-
-        if result is None or result[0] != 1:
+        if result is None or _row_value(result, "result") != 1:
             status = HealthStatus.UNHEALTHY
             message = "Database query returned unexpected result"
-
-        # Check query performance
-        query_start = time.time()
-        db.execute("SELECT COUNT(*) FROM discoveries").fetchone()
-        query_duration = time.time() - query_start
-
-        if query_duration > 1.0:  # Slow query threshold
-            status = HealthStatus.DEGRADED
-            message = f"Database queries slow ({query_duration:.2f}s)"
+        else:
+            query_start = time.time()
+            count_row = db_conn.execute("SELECT COUNT(*) AS total FROM artifacts;").fetchone()
+            query_duration = time.time() - query_start
+            if query_duration > 1.0:
+                status = HealthStatus.DEGRADED
+                message = f"Database queries slow ({query_duration:.2f}s)"
+            elif count_row is None:
+                message = "Database count query returned no result"
+                status = HealthStatus.DEGRADED
 
     except Exception as e:
         status = HealthStatus.UNHEALTHY
-        message = f"Database error: {str(e)}"
-        log.error(f"Database health check failed: {e}")
+        message = f"Database health check failed: {e}"
+        log.error(message)
+    finally:
+        if db_conn:
+            db_conn.close()
 
     duration_ms = (time.time() - start_time) * 1000
 
@@ -118,13 +142,18 @@ async def check_redis_health() -> ComponentHealth:
     try:
         import redis
         from redis.exceptions import RedisError
+        from .config import get_config
 
-        # Try to connect to Redis with defaults
-        # TODO: Get from config when Redis config is added
+        # Load Redis config from settings
+        config = get_config()
+        redis_config = config.app.redis
+
+        # Try to connect to Redis
         client = redis.Redis(
-            host="localhost",
-            port=6379,
-            db=0,
+            host=redis_config.host,
+            port=redis_config.port,
+            db=redis_config.db,
+            password=redis_config.password,
             socket_connect_timeout=2,
             socket_timeout=2,
         )
@@ -142,14 +171,11 @@ async def check_redis_health() -> ComponentHealth:
         # Redis not installed, not critical
         status = HealthStatus.DEGRADED
         message = "Redis package not installed (optional)"
-    except RedisError as e:
+    except Exception as e:
+        # Catch all Redis errors (RedisError is imported inside try block)
         status = HealthStatus.DEGRADED
         message = f"Redis unavailable: {str(e)}"
         log.warning(f"Redis health check failed (non-critical): {e}")
-    except Exception as e:
-        status = HealthStatus.DEGRADED
-        message = f"Redis error: {str(e)}"
-        log.warning(f"Redis health check failed: {e}")
 
     duration_ms = (time.time() - start_time) * 1000
 

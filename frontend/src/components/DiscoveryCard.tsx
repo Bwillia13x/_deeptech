@@ -2,13 +2,19 @@ import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { 
-  ExternalLink, 
-  ChevronDown, 
-  ChevronUp, 
-  Calendar, 
-  Tag, 
-  Users
+import {
+  ExternalLink,
+  ChevronDown,
+  ChevronUp,
+  Calendar,
+  Users,
+  FileText,
+  GitBranch,
+  Twitter,
+  Facebook,
+  Linkedin,
+  Rss,
+  Sparkles,
 } from "lucide-react";
 import { Discovery } from "../types/api";
 import { ScoreBadge } from "./ScoreBadge";
@@ -32,6 +38,14 @@ export function DiscoveryCard({ discovery, showDetails = true }: DiscoveryCardPr
         return <GitBranch className="h-4 w-4" />;
       case "x":
         return <Twitter className="h-4 w-4" />;
+      case "facebook":
+        return <Facebook className="h-4 w-4" />;
+      case "linkedin":
+        return <Linkedin className="h-4 w-4" />;
+      case "reddit":
+        return <Rss className="h-4 w-4" />;
+      case "hackernews":
+        return <Sparkles className="h-4 w-4" />;
       default:
         return <ExternalLink className="h-4 w-4" />;
     }
@@ -45,6 +59,14 @@ export function DiscoveryCard({ discovery, showDetails = true }: DiscoveryCardPr
         return "bg-gray-100 text-gray-800 hover:bg-gray-200";
       case "x":
         return "bg-sky-100 text-sky-800 hover:bg-sky-200";
+      case "facebook":
+        return "bg-blue-100 text-blue-800 hover:bg-blue-200";
+      case "linkedin":
+        return "bg-cyan-100 text-cyan-800 hover:bg-cyan-200";
+      case "reddit":
+        return "bg-amber-100 text-amber-800 hover:bg-amber-200";
+      case "hackernews":
+        return "bg-orange-100 text-orange-800 hover:bg-orange-200";
       default:
         return "bg-blue-100 text-blue-800 hover:bg-blue-200";
     }
@@ -64,6 +86,18 @@ export function DiscoveryCard({ discovery, showDetails = true }: DiscoveryCardPr
         return "Tweet";
       case "post":
         return "Post";
+      case "reddit_post":
+        return "Reddit Post";
+      case "story":
+        return "Hacker News Story";
+      case "ask":
+        return "Ask HN";
+      case "show":
+        return "Show HN";
+      case "comment":
+        return "Comment";
+      case "job":
+        return "HN Job";
       default:
         return type;
     }
@@ -208,6 +242,3 @@ export function DiscoveryCard({ discovery, showDetails = true }: DiscoveryCardPr
     </Card>
   );
 }
-
-// Import missing icons
-import { FileText, GitBranch, Twitter } from "lucide-react";

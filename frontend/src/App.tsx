@@ -11,8 +11,19 @@ import SignalForm from "./pages/SignalForm";
 import Settings from "./pages/Settings";
 import Discoveries from "./pages/Discoveries";
 import AnalyticsDashboard from "./pages/AnalyticsDashboard";
+import TopicsPage from "./pages/Topics";
+import TopicListPage from "./pages/TopicList";
+import TopicDetailPage from "./pages/TopicDetail";
+import EntitiesPage from "./pages/Entities";
+import EntityDetailPage from "./pages/EntityDetail";
+import ArtifactRelationshipsPage from "./pages/ArtifactRelationships";
+import CitationGraphPage from "./pages/CitationGraphPage";
+import ExperimentsPage from "./pages/Experiments";
+import ExperimentDetailPage from "./pages/ExperimentDetail";
+import ExperimentFormPage from "./pages/ExperimentForm";
+import LabelsPage from "./pages/Labels";
 import NotFound from "./pages/NotFound";
-import Onboarding, { useOnboarding } from "./components/Onboarding";
+import Onboarding, { useOnboarding } from "./components/Onboarding"; 
 
 export default function App() {
   const { showOnboarding, handleComplete, handleSkip } = useOnboarding();
@@ -25,6 +36,17 @@ export default function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/analytics" element={<AnalyticsDashboard />} />
           <Route path="/discoveries" element={<Discoveries />} />
+          <Route path="/topics" element={<TopicsPage />} />
+          <Route path="/entities" element={<EntitiesPage />} />
+          <Route path="/entities/:entityId" element={<EntityDetailPage />} />
+          <Route path="/artifact-relationships" element={<ArtifactRelationshipsPage />} />
+          <Route path="/artifacts/:artifactId/relationships" element={<ArtifactRelationshipsPage />} />
+          <Route path="/artifacts/:artifactId/graph" element={<CitationGraphPage />} />
+          <Route path="/experiments" element={<ExperimentsPage />} />
+          <Route path="/experiments/new" element={<ExperimentFormPage />} />
+          <Route path="/experiments/:experimentId/edit" element={<ExperimentFormPage />} />
+          <Route path="/experiments/:experimentId" element={<ExperimentDetailPage />} />
+          <Route path="/labels" element={<LabelsPage />} />
           <Route path="/signals" element={<Signals />} />
           <Route path="/signals/new" element={<SignalForm />} />
           <Route path="/signals/:id/edit" element={<SignalForm />} />

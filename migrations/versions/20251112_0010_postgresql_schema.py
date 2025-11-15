@@ -40,6 +40,37 @@ def upgrade() -> None:
         print(f"Skipping PostgreSQL migration - current dialect is {bind.dialect.name}")
         return
     
+    # Check if tables already exist (fresh PostgreSQL install)
+    inspector = sa.inspect(bind)
+    existing_tables = set(inspector.get_table_names())
+
+    # If earlier SQLite-compatible tables exist (default after previous migrations),
+    # drop them so we can recreate the optimized PostgreSQL schema in-place.
+    drop_order = [
+        'snapshots',
+        'discovery_labels',
+        'experiment_runs',
+        'experiments',
+        'topic_similarity',
+        'artifact_relationships',
+        'artifact_entities',
+        'entities',
+        'artifact_topics',
+        'topics',
+        'artifact_classifications',
+        'artifact_scores',
+        'artifacts',
+        'beta_users',
+        'cursors',
+        'tweets',
+    ]
+
+    if any(table in existing_tables for table in drop_order):
+        print("Detected existing SQLite-era tables; dropping before applying PostgreSQL schema")
+        for table in drop_order:
+            if table in existing_tables:
+                op.drop_table(table)
+    
     # 1. Core tweets/signals table
     op.create_table(
         'tweets',

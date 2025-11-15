@@ -53,7 +53,7 @@ Once deployed, access the monitoring services at:
   - Manage alert silences
   - Configure notification routing
 
-- **API Metrics**: <http://localhost:8000/prometheus>
+- **API Metrics**: <http://localhost:8000/metrics/prometheus>
   - Raw Prometheus metrics from Signal Harvester API
   - Includes request latency, error rates, and Python runtime metrics
 
@@ -72,7 +72,7 @@ services:
   grafana:          # Visualization (port 3000)
   alertmanager:     # Alert routing (port 9093)
   node-exporter:    # System metrics (port 9100)
-  signal-harvester: # API with /prometheus endpoint (port 8000)
+  signal-harvester: # API with /metrics/prometheus endpoint (port 8000)
 ```
 
 All services share a `monitoring` Docker network for communication.
@@ -89,7 +89,7 @@ Three Docker volumes persist monitoring data:
 
 Prometheus scrapes metrics from:
 
-1. **Signal Harvester API** (`signal-harvester:8000/prometheus`)
+1. **Signal Harvester API** (`signal-harvester:8000/metrics/prometheus`)
    - Request latency (p50, p95, p99)
    - Error rates by status code
    - Active requests
@@ -279,14 +279,14 @@ docker-compose -f docker-compose.monitoring.yml logs <service-name>
 ### Prometheus Not Scraping API
 
 ```bash
-# Verify API /prometheus endpoint
-curl http://localhost:8000/prometheus
+# Verify API /metrics/prometheus endpoint
+curl http://localhost:8000/metrics/prometheus
 
 # Check Prometheus targets page
 open http://localhost:9090/targets
 
 # Common issues:
-# - API not exposing /prometheus endpoint (check PrometheusMiddleware)
+# - API not exposing /metrics/prometheus endpoint (check PrometheusMiddleware)
 # - Network connectivity (verify monitoring Docker network)
 # - Scrape timeout (increase timeout in prometheus-docker.yml)
 ```

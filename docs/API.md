@@ -22,6 +22,9 @@ curl -H "X-API-Key: YOUR_API_KEY" http://localhost:8000/top
 
 Set the `HARVEST_API_KEY` environment variable to enable authentication.
 
+> Frontend builds now read the same credential from the `VITE_API_KEY` env var (see `frontend/.env.example`).
+> Providing this value ensures every request includes the required `X-API-Key` header automatically.
+
 ## 📊 Rate Limiting
 
 API endpoints are rate-limited to **10 requests per minute** per client (IP + User-Agent).

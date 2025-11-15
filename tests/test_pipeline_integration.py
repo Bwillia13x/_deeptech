@@ -7,7 +7,17 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from signal_harvester.config import AppConfig, ArxivConfig, FacebookConfig, GitHubConfig, Settings, SourcesConfig
+from signal_harvester.config import (
+    AppConfig,
+    ArxivConfig,
+    FacebookConfig,
+    GitHubConfig,
+    HackerNewsConfig,
+    LinkedInConfig,
+    RedditConfig,
+    Settings,
+    SourcesConfig,
+)
 from signal_harvester.db import connect, init_db, run_migrations
 from signal_harvester.pipeline_discovery import fetch_artifacts
 
@@ -367,3 +377,115 @@ async def test_fetch_artifacts_github_with_database_storage(tmp_path: Path, mock
     assert call_args["source"] == "facebook"
     assert call_args["source_id"] == "testpage_12345"
     assert "AI research" in call_args["text"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_artifacts_reddit_integration(tmp_path: Path, mocker) -> None:
+    """Ensure fetch_artifacts wires Reddit client artifacts."""
+
+    db_path = tmp_path / "pipeline_test.db"
+    init_db(str(db_path))
+    run_migrations(str(db_path))
+
+    reddit_config = RedditConfig(
+        enabled=True,
+        subreddits=["testsub"],
+        max_results=5,
+    )
+    sources_config = SourcesConfig(
+        arxiv=ArxivConfig(enabled=False),
+        github=GitHubConfig(enabled=False, token="", topics=[], orgs=[]),
+        facebook=FacebookConfig(enabled=False, access_token="", pages=[], groups=[]),
+        linkedin=LinkedInConfig(enabled=False),
+        reddit=reddit_config,
+    )
+    app_config = AppConfig(database_path=str(db_path), sources=sources_config)
+    settings = Settings(app=app_config, queries=[])
+
+    mock_artifacts = [{
+        "type": "reddit_post",
+        "source": "reddit",
+        "source_id": "abc123",
+        "title": "Test Reddit Post",
+        "text": "Deep tech discovery thread",
+        "url": "https://reddit.com/r/testsub/comments/abc123",
+        "published_at": "2025-11-10T00:00:00Z",
+        "raw_json": "{}",
+    }]
+
+    mocker.patch(
+        "signal_harvester.reddit_client.fetch_reddit_artifacts",
+        new_callable=AsyncMock,
+        return_value=mock_artifacts,
+    )
+
+    mock_upsert = mocker.patch("signal_harvester.db.upsert_artifact")
+    mock_upsert.return_value = 101
+
+    stats = await fetch_artifacts(settings)
+
+    assert "reddit" in stats["sources"]
+    assert stats["sources"]["reddit"]["seen"] == 1
+    assert stats["sources"]["reddit"]["inserted"] == 1
+    assert mock_upsert.call_count == 1
+    call_args = mock_upsert.call_args[1]
+    assert call_args["source"] == "reddit"
+    assert call_args["source_id"] == "abc123"
+    assert "Deep tech" in call_args["text"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_artifacts_hacker_news_integration(tmp_path: Path, mocker) -> None:
+    """Ensure fetch_artifacts wires Hacker News client artifacts."""
+
+    db_path = tmp_path / "pipeline_test.db"
+    init_db(str(db_path))
+    run_migrations(str(db_path))
+
+    hn_config = HackerNewsConfig(
+        enabled=True,
+        max_items=2,
+        list_types=["topstories"],
+        allowed_item_types=["story"],
+    )
+    sources_config = SourcesConfig(
+        arxiv=ArxivConfig(enabled=False),
+        github=GitHubConfig(enabled=False, token="", topics=[], orgs=[]),
+        facebook=FacebookConfig(enabled=False, access_token="", pages=[], groups=[]),
+        linkedin=LinkedInConfig(enabled=False),
+        reddit=RedditConfig(enabled=False),
+        hacker_news=hn_config,
+    )
+    app_config = AppConfig(database_path=str(db_path), sources=sources_config)
+    settings = Settings(app=app_config, queries=[])
+
+    mock_artifacts = [{
+        "type": "story",
+        "source": "hackernews",
+        "source_id": "123",
+        "title": "Hacker News test",
+        "text": "Ask HN thread about deep tech",
+        "url": "https://news.ycombinator.com/item?id=123",
+        "published_at": "2025-11-09T12:00:00Z",
+        "raw_json": "{}",
+    }]
+
+    mocker.patch(
+        "signal_harvester.hackernews_client.fetch_hackernews_artifacts",
+        new_callable=AsyncMock,
+        return_value=mock_artifacts,
+    )
+
+    mock_upsert = mocker.patch("signal_harvester.db.upsert_artifact")
+    mock_upsert.return_value = 202
+
+    stats = await fetch_artifacts(settings)
+
+    assert "hacker_news" in stats["sources"]
+    assert stats["sources"]["hacker_news"]["seen"] == 1
+    assert stats["sources"]["hacker_news"]["inserted"] == 1
+    assert mock_upsert.call_count == 1
+    call_args = mock_upsert.call_args[1]
+    assert call_args["source"] == "hackernews"
+    assert call_args["source_id"] == "123"
+    assert "Ask HN" in call_args["text"]

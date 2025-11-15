@@ -36,9 +36,33 @@ The SQLite database works for local testing, but production must move to Postgre
 | 5. Validation | Run `harvest db analyze-performance`, the query profiling script, and API p95 measurements to verify <500 ms latency with the new database; capture logs in `docs/QUERY_PROFILING_REPORT.md`. | ⚪ Planned |
 | 6. Rollback & monitoring | Document rollback steps (point back to SQLite, run migrations `downgrade`, flush cache) and update `docs/DEPLOYMENT.md` with Health Check steps. | ⚪ Planned |
 
+### Discovery Route Validation
+
+- `src/signal_harvester/db.py` now normalizes legacy database paths, reuses the shared `DatabaseConnection`, and emits dialect-aware aggregations (`string_agg` when `DATABASE_URL` points at Postgres, `GROUP_CONCAT` otherwise) so `/discoveries`, cursor pagination, and topic analytics no longer hit HTTP 500 errors after switching to PostgreSQL.
+- Regression coverage is provided by `tests/test_db.py` (Postgres-aware connection helper) and `tests/test_config.py` (config loading with Postgres URLs), keeping the contract layer green regardless of the backend.
+- After the remote staging credentials are available, execute:
+
+  ```bash
+  DATABASE_URL=postgresql://harness:secret@staging-db:5432/signal_harvester \
+    scripts/migrate_sqlite_to_postgresql.py --sqlite-path var/app.db
+  harvest verify-postgres --database-url postgresql://harness:secret@staging-db:5432/signal_harvester
+  python scripts/performance_test.py --base-url http://localhost:8000
+  ```
+
+  Capture the row counts and latency table output and append them to `docs/QUERY_PROFILING_REPORT.md` along with screenshots of the Grafana/Postgres dashboards before releasing the discovery UI.
+
+### Command Shortcuts
+
+- `make migrate-postgres-dry-run` — exercise `scripts/migrate_to_postgresql.py` without writing to PostgreSQL (great for CI smoke). Override `PG_URL` to point at staging: `PG_URL=postgresql://harvest:secret@staging-db:5432/signal_harvester make migrate-postgres-dry-run`.
+- `make migrate-postgres` — run the live migration from the default SQLite file (`$(SQLITE_DB)` → `var/app.db`) into `$(PG_URL)`. Emit per-table stats plus a markdown-friendly summary.
+- `make validate-postgres` — execute `harvest verify-postgres --database-url $(PG_URL)` to confirm schema, indexes, and row counts after the migration lands (the target falls back to the legacy script if Typer isn't available).
+
+These targets encode the environment-variable plumbing (SQLite path, Postgres DSN) so Phase Three verification can run with a single command and be wired into `make verify-all` once the Postgres cutover date is locked.
+
 ## Monitoring & Next Steps
 
 - Keep `docs/QUERY_PROFILING_REPORT.md` current; re-run `scripts/profile_queries.py` after schema changes and attach the resulting markdown to release notes.
+- `docker-compose.staging.yml` + `deploy/staging/Caddyfile` spin up the API, scheduler, PostgreSQL, Redis, and the monitoring trio (Prometheus/Grafana/Alertmanager) behind HTTPS so staging drills use the same topology (see `docs/PRODUCTION_DEPLOYMENT.md`).
 - `make verify-all` now runs `harvest db analyze-performance`, so CI-level regressions are caught automatically.
 - Maintain cache hit rate dashboards (via Prometheus or Grafana) and instrument SSE progress metrics as part of the `Phase Three` runbook.
 - Once Postgres path is validated, update `ARCHITECTURE_AND_READINESS.md section 6.3` to mark the phase complete.

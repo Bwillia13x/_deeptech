@@ -34,9 +34,14 @@ except ImportError:
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
-# Get database path from environment or use default
-db_path = os.getenv("DATABASE_PATH", "var/app.db")
-config.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+# Get database URL from environment or use default SQLite
+if db_url := os.getenv("DATABASE_URL"):
+    # DATABASE_URL takes precedence (can be postgresql:// or sqlite://)
+    config.set_main_option("sqlalchemy.url", db_url)
+else:
+    # Fall back to DATABASE_PATH for SQLite
+    db_path = os.getenv("DATABASE_PATH", "var/app.db")
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
 
 
 def run_migrations_offline() -> None:

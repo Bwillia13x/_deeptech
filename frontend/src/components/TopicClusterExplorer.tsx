@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -18,7 +18,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { getTrendingTopics, getTopicTimeline } from "../api/discoveries";
 import { TrendingTopic, TopicTimelinePoint } from "../types/api";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts";
 import { format, parseISO } from "date-fns";
 
 interface TopicClusterExplorerProps {
@@ -85,6 +85,17 @@ export function TopicClusterExplorer({ selectedTopic, onTopicSelect }: TopicClus
 
     return clusters;
   }, [trendingTopics]);
+
+  useEffect(() => {
+    if (!selectedTopic) {
+      setSelectedCluster(null);
+      return;
+    }
+    const matchingCluster = topicClusters.find((cluster) => cluster.primary.name === selectedTopic);
+    if (matchingCluster) {
+      setSelectedCluster(matchingCluster);
+    }
+  }, [selectedTopic, topicClusters]);
 
   // Find merge candidates (very similar topics)
   const findMergeCandidates = (cluster: TopicCluster): TrendingTopic[] => {

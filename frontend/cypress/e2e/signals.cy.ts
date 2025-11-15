@@ -22,7 +22,11 @@ describe('Signals Workflow', () => {
   });
 
   it('should navigate between pages', () => {
-    cy.visit('/');
+    cy.visit('/', {
+      onBeforeLoad(win) {
+        win.localStorage.setItem('hasSeenOnboarding', 'true');
+      },
+    });
     cy.url().should('include', '/dashboard');
     
     // Navigate to signals
@@ -60,7 +64,10 @@ describe('Beta Management', () => {
   it('should create and list beta users via CLI', () => {
     // This would be tested via CLI in integration tests
     // For now, verify the database schema exists
-    cy.exec('cd ../.. && python -c "from signal_harvester.cli.core import app; app([\'beta-stats\'])", { failOnNonZeroExit: false }').then((result) => {
+    cy.exec(
+      'cd ../.. && python -c "from signal_harvester.cli.core import app; app([\'beta-stats\'])"',
+      { failOnNonZeroExit: false }
+    ).then((result) => {
       expect(result.code).to.be.oneOf([0, 1]); // 0 = success, 1 = no data (also ok)
     });
   });

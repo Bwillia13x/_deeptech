@@ -139,7 +139,7 @@ services:
     labels:
       - "prometheus.io/scrape=true"
       - "prometheus.io/port=8000"
-      - "prometheus.io/path=/prometheus"
+      - "prometheus.io/path=/metrics/prometheus"
     healthcheck:
       test:
         [

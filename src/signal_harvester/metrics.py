@@ -418,6 +418,97 @@ def get_metrics() -> bytes:
     return generate_latest()
 
 
+# ============================================================================
+# Backup Metrics
+# ============================================================================
+
+backup_runs_total = Counter(
+    "backup_runs_total",
+    "Total number of backup operations",
+    ["backup_type", "status"],
+)
+
+backup_duration_seconds = Histogram(
+    "backup_duration_seconds",
+    "Duration of backup operations in seconds",
+    ["backup_type"],
+    buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0),
+)
+
+backup_size_bytes = Histogram(
+    "backup_size_bytes",
+    "Size of backup files in bytes",
+    ["backup_type", "compression"],
+    buckets=(
+        1 * 1024 * 1024,
+        10 * 1024 * 1024,
+        100 * 1024 * 1024,
+        500 * 1024 * 1024,
+        1 * 1024 * 1024 * 1024,
+        5 * 1024 * 1024 * 1024,
+        10 * 1024 * 1024 * 1024,
+    ),
+)
+
+backup_errors_total = Counter(
+    "backup_errors_total",
+    "Total number of backup errors",
+    ["backup_type", "error_type"],
+)
+
+backup_uploads_total = Counter(
+    "backup_uploads_total",
+    "Total number of backup upload operations",
+    ["provider", "status"],
+)
+
+backup_upload_duration_seconds = Histogram(
+    "backup_upload_duration_seconds",
+    "Duration of backup uploads in seconds",
+    ["provider"],
+    buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0),
+)
+
+backup_verifications_total = Counter(
+    "backup_verifications_total",
+    "Total number of backup verifications",
+    ["status"],
+)
+
+backup_restores_total = Counter(
+    "backup_restores_total",
+    "Total number of backup restore operations",
+    ["status"],
+)
+
+backup_retention_pruned_total = Counter(
+    "backup_retention_pruned_total",
+    "Number of backups removed by retention policies",
+    ["retention_policy"],
+)
+
+backup_oldest_age_seconds = Gauge(
+    "backup_oldest_age_seconds",
+    "Age of the oldest backup in seconds",
+)
+
+backup_newest_age_seconds = Gauge(
+    "backup_newest_age_seconds",
+    "Age of the most recent backup in seconds",
+)
+
+backup_total_count = Gauge(
+    "backup_total_count",
+    "Total number of backups available",
+    ["backup_type"],
+)
+
+backup_total_size_bytes = Gauge(
+    "backup_total_size_bytes",
+    "Aggregate size of all backups in bytes",
+)
+
+
 def record_cache_hit(cache_type: str, cache_name: str) -> None:
     """Record a cache hit."""
     cache_hits_total.labels(cache_type=cache_type, cache_name=cache_name).inc()

@@ -9,11 +9,13 @@ import { StatusBadge } from "./StatusBadge";
 import { cn } from "../lib/utils";
 import { toast } from "sonner";
 import type { SignalsListParams, SignalStatus } from "../types/api";
-import { startBulkSetSignalStatus, startBulkDeleteSignals, getBulkJob, openBulkJobStream, cancelBulkJob } from "../api/bulk";
+import { startBulkSetSignalStatus, startBulkDeleteSignals, cancelBulkJob } from "../api/bulk";
+import type { BulkJobStatus } from "../api/bulk";
 import { setSignalStatus as apiSetSignalStatus, deleteSignal as apiDeleteSignal, listSignals as apiListSignals } from "../api/signals";
+import { useBulkOperation } from "../hooks/useBulkOperation";
 import { useConfirm } from "./ConfirmDialog";
 import { Dropdown, DropdownItem, DropdownSeparator } from "./ui/dropdown";
-import EmptyState, { EmptySignals, EmptySearch } from "./EmptyState";
+import { EmptySignals, EmptySearch } from "./EmptyState";
 
 const PAGE_SIZES = [10, 20, 50];
 
@@ -64,7 +66,12 @@ export default function SignalsTable() {
   const [bulkLoading, setBulkLoading] = React.useState<null | "pause" | "resume" | "delete">(null);
   const [progress, setProgress] = React.useState<{ total: number; done: number; fail: number } | null>(null);
   const cancelRef = React.useRef(false);
-  const [serverJobId, setServerJobId] = React.useState<string | null>(null);
+  const handleBulkProgress = React.useCallback((status: BulkJobStatus) => {
+    setProgress({ total: status.total, done: status.done, fail: status.fail });
+  }, []);
+  const { serverJobId, runServerBulk, cancelCurrentJob } = useBulkOperation({
+    onProgress: handleBulkProgress,
+  });
 
   React.useEffect(() => {
     setPage(1);
@@ -185,6 +192,22 @@ export default function SignalsTable() {
     setSelectAcrossAll(false);
   };
 
+  const notifyBulkJobResult = (label: "resume" | "pause" | "delete", status: BulkJobStatus) => {
+    if (status.status === "cancelled") {
+      const processed = status.done + status.fail;
+      toast.message(`Cancelled ${label} operation (${processed}/${status.total} processed)`);
+      return;
+    }
+
+    const pastTense = label === "resume" ? "Resumed" : label === "pause" ? "Paused" : "Deleted";
+    if (status.done) {
+      toast.success(`${pastTense} ${status.done} signal${status.done === 1 ? "" : "s"}`);
+    }
+    if (status.fail) {
+      toast.error(`Failed to ${label} ${status.fail} signal${status.fail === 1 ? "" : "s"}`);
+    }
+  };
+
   // Helpers: concurrency runner, enumerate ids across all pages, resolve targets
   async function runWithConcurrency<T>(
     ids: string[],
@@ -245,89 +268,31 @@ export default function SignalsTable() {
     return all.filter((id) => !excludedIds[id]);
   }
 
-  // Server bulk attempt with SSE preferred, fallback to polling
-  async function tryServerBulk(
-    label: "resume" | "pause" | "delete",
-    start: () => Promise<{ jobId: string; total: number }>
-  ): Promise<boolean> {
-    function successPast(l: "resume" | "pause" | "delete") {
-      switch (l) {
-        case "resume":
-          return "resumed";
-        case "pause":
-          return "paused";
-        case "delete":
-          return "deleted";
-      }
-    }
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    try {
-      const { jobId, total } = await start();
-      if (!jobId) return false;
-      setServerJobId(jobId);
-      setProgress({ total, done: 0, fail: 0 });
-      let finalSt: import("../api/bulk").BulkJobStatus | null = null;
-      let usedSSE = false;
-      const sseSupported = typeof window !== "undefined" && "EventSource" in window;
-      if (sseSupported) {
-        try {
-          const stream = openBulkJobStream(jobId, (st) => {
-            finalSt = st;
-            setProgress({ total: st.total, done: st.done, fail: st.fail });
-          });
-          const connected = await Promise.race([stream.connected, sleep(1000).then(() => false)]);
-          if (connected) {
-            usedSSE = true;
-            await stream.wait;
-          } else {
-            stream.close();
-          }
-        } catch {
-          // ignore and fallback to polling
-        }
-      }
-      if (!usedSSE) {
-        let st: import("../api/bulk").BulkJobStatus;
-        do {
-          st = await getBulkJob(jobId);
-          finalSt = st;
-          setProgress({ total: st.total, done: st.done, fail: st.fail });
-          if (st.status === "running") {
-            await sleep(700);
-          }
-        } while (st.status === "running");
-      }
-      if (finalSt) {
-        if (finalSt.status === "cancelled") {
-          toast.message(`Cancelled ${label} operation (${finalSt.done + finalSt.fail}/${finalSt.total} processed)`);
-        } else {
-          const past = successPast(label);
-          if (finalSt.done) toast.success(`${past.charAt(0).toUpperCase() + past.slice(1)} ${finalSt.done} signal${finalSt.done === 1 ? "" : "s"}`);
-          if (finalSt.fail) toast.error(`Failed to ${label} ${finalSt.fail} signal${finalSt.fail === 1 ? "" : "s"}`);
-        }
-      }
-      return true;
-    } catch (_e) {
-      return false;
-    } finally {
-      setServerJobId(null);
-    }
-  }
-
   async function bulkSetStatus(next: SignalStatus) {
     const label = next === "active" ? "resume" : "pause";
     const targets = selectAcrossAll ? await resolveTargetIds() : selectedIds;
     if (targets.length === 0) return;
     setBulkLoading(label);
-    setProgress({ total: targets.length, done: 0, fail: 0 });
+    setProgress(null);
     cancelRef.current = false;
-    // Try server bulk first
     const serverScope = selectAcrossAll
       ? { filters: { search: debouncedSearch || undefined, status, source } }
       : { ids: targets };
-    const usedServer = await tryServerBulk(label as any, () => startBulkSetSignalStatus(serverScope as any, next));
-    if (!usedServer) {
+
+    try {
+      const finalStatus = await runServerBulk(() =>
+        startBulkSetSignalStatus(serverScope as any, next)
+      );
+      if (finalStatus) {
+        notifyBulkJobResult(label, finalStatus);
+        await queryClient.invalidateQueries({ queryKey: ["signals"] });
+        await queryClient.invalidateQueries({ queryKey: ["signals", "stats"] });
+        return;
+      }
+
+      // Fallback to local concurrency if server job was unavailable
       try {
+        setProgress({ total: targets.length, done: 0, fail: 0 });
         const { ok, fail, cancelled } = await runWithConcurrency(
           targets,
           8,
@@ -348,17 +313,14 @@ export default function SignalsTable() {
         await queryClient.invalidateQueries({ queryKey: ["signals"] });
         await queryClient.invalidateQueries({ queryKey: ["signals", "stats"] });
       }
-    } else {
-      await queryClient.invalidateQueries({ queryKey: ["signals"] });
-      await queryClient.invalidateQueries({ queryKey: ["signals", "stats"] });
+    } finally {
+      setSelected({});
+      setExcludedIds({});
+      setSelectAcrossAll(false);
+      setBulkLoading(null);
+      setProgress(null);
+      cancelRef.current = false;
     }
-    // Reset UI
-    setSelected({});
-    setExcludedIds({});
-    setSelectAcrossAll(false);
-    setBulkLoading(null);
-    setProgress(null);
-    cancelRef.current = false;
   }
 
   async function bulkDelete() {
@@ -366,14 +328,25 @@ export default function SignalsTable() {
     if (targets.length === 0) return;
     if (!window.confirm(`Delete ${targets.length} selected signal${targets.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
     setBulkLoading("delete");
-    setProgress({ total: targets.length, done: 0, fail: 0 });
+    setProgress(null);
     cancelRef.current = false;
     const serverScope = selectAcrossAll
       ? { filters: { search: debouncedSearch || undefined, status, source } }
       : { ids: targets };
-    const usedServer = await tryServerBulk("delete", () => startBulkDeleteSignals(serverScope as any));
-    if (!usedServer) {
+
+    try {
+      const finalStatus = await runServerBulk(() =>
+        startBulkDeleteSignals(serverScope as any)
+      );
+      if (finalStatus) {
+        notifyBulkJobResult("delete", finalStatus);
+        await queryClient.invalidateQueries({ queryKey: ["signals"] });
+        await queryClient.invalidateQueries({ queryKey: ["signals", "stats"] });
+        return;
+      }
+
       try {
+        setProgress({ total: targets.length, done: 0, fail: 0 });
         const { ok, fail, cancelled } = await runWithConcurrency(
           targets,
           8,
@@ -394,16 +367,14 @@ export default function SignalsTable() {
         await queryClient.invalidateQueries({ queryKey: ["signals"] });
         await queryClient.invalidateQueries({ queryKey: ["signals", "stats"] });
       }
-    } else {
-      await queryClient.invalidateQueries({ queryKey: ["signals"] });
-      await queryClient.invalidateQueries({ queryKey: ["signals", "stats"] });
+    } finally {
+      setSelected({});
+      setExcludedIds({});
+      setSelectAcrossAll(false);
+      setBulkLoading(null);
+      setProgress(null);
+      cancelRef.current = false;
     }
-    setSelected({});
-    setExcludedIds({});
-    setSelectAcrossAll(false);
-    setBulkLoading(null);
-    setProgress(null);
-    cancelRef.current = false;
   }
 
   function handleToggleStatus(id: string, current: SignalStatus, name: string) {
@@ -578,18 +549,19 @@ export default function SignalsTable() {
                 {progress.fail ? ` (${progress.fail} failed)` : ""}
                 {serverJobId ? ` — Job ${serverJobId}` : ""}
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  if (serverJobId) {
-                    cancelBulkJob(serverJobId).catch(() => {});
-                  }
-                  cancelRef.current = true;
-                }}
-              >
-                Cancel
-              </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (serverJobId) {
+                      cancelBulkJob(serverJobId).catch(() => {});
+                    }
+                    cancelCurrentJob();
+                    cancelRef.current = true;
+                  }}
+                >
+                  Cancel
+                </Button>
             </>
           ) : null}
           <div className="ml-auto">

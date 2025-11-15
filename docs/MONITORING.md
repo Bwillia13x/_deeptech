@@ -10,7 +10,7 @@ Signal Harvester uses a comprehensive monitoring stack based on Prometheus and G
 ┌─────────────────────┐
 │   Signal Harvester  │
 │   FastAPI App       │──────> Prometheus Metrics Endpoint
-│   /prometheus       │        (/prometheus)
+│   /metrics/prometheus │      (/metrics/prometheus)
 └─────────────────────┘
          │
          │ Metrics Collection
@@ -601,11 +601,11 @@ kubectl -n signal-harvester get pods -o yaml | grep prometheus.io
 2. Check Prometheus targets:
    - Open Prometheus UI > Status > Targets
    - Look for signal-harvester pods
-3. Verify /prometheus endpoint:
+3. Verify /metrics/prometheus endpoint:
 
 ```bash
 kubectl -n signal-harvester port-forward svc/signal-harvester 8000:8000
-curl http://localhost:8000/prometheus
+curl http://localhost:8000/metrics/prometheus
 ```
 
 ### Dashboard Shows "No Data"

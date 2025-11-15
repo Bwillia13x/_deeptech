@@ -199,7 +199,7 @@ display_urls() {
     echo "  🔔 Alertmanager:   http://localhost:9093"
     echo ""
     echo "  🚀 API:            http://localhost:8000"
-    echo "     Metrics:        http://localhost:8000/prometheus"
+    echo "     Metrics:        http://localhost:8000/metrics/prometheus"
     echo "     Health:         http://localhost:8000/health"
     echo ""
     echo "  🖥️  Node Exporter:  http://localhost:9100/metrics"

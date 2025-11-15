@@ -458,7 +458,7 @@ Pods are annotated for Prometheus scraping:
 ```yaml
 prometheus.io/scrape: "true"
 prometheus.io/port: "8000"
-prometheus.io/path: "/metrics"
+prometheus.io/path: "/metrics/prometheus"
 ```
 
 ### Grafana Dashboards

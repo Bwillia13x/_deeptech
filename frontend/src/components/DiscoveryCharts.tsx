@@ -2,27 +2,25 @@ import React, { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { Button } from "./ui/button";
-import { 
-  LineChart, 
-  Line, 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
   ResponsiveContainer,
   AreaChart,
   Area,
   PieChart,
   Pie,
   Cell,
-  Legend
+  Legend,
 } from "recharts";
 import { useQuery } from "@tanstack/react-query";
 import { getDiscoveryStats } from "../api/discoveries";
-import { format, parseISO, subDays } from "date-fns";
-import { TrendingUp, Calendar, BarChart3, PieChartIcon, Activity } from "lucide-react";
+import { format, parseISO } from "date-fns";
+import { Calendar, BarChart3, PieChartIcon, Activity } from "lucide-react";
 
 interface DiscoveryChartsProps {
   className?: string;
@@ -53,10 +51,12 @@ interface TopicData {
 
 const COLORS = {
   arxiv: "#e74c3c",
-  github: "#2c3e50", 
+  github: "#2c3e50",
   x: "#1da1f2",
   facebook: "#1877f2",
-  score: "#27ae60"
+  reddit: "#ff4500",
+  hackernews: "#ffb347",
+  score: "#27ae60",
 };
 
 export function DiscoveryCharts({ className }: DiscoveryChartsProps) {
@@ -361,24 +361,44 @@ function generateTimeSeriesData(days: number, selectedSources: string[]): TimeSe
 }
 
 function generateSourceData(stats: any, selectedSources: string[]): SourceData[] {
-  const sources = [
-    { source: "arxiv", count: 650, avgScore: 72.5, color: COLORS.arxiv },
-    { source: "github", count: 420, avgScore: 68.3, color: COLORS.github },
-    { source: "x", count: 180, avgScore: 55.7, color: COLORS.x },
-    { source: "facebook", count: 85, avgScore: 52.1, color: COLORS.facebook },
+  const defaultSources: SourceData[] = [
+    { source: "arxiv", count: 650, avgScore: 72.5, fill: COLORS.arxiv },
+    { source: "github", count: 420, avgScore: 68.3, fill: COLORS.github },
+    { source: "x", count: 180, avgScore: 55.7, fill: COLORS.x },
+    { source: "facebook", count: 85, avgScore: 52.1, fill: COLORS.facebook },
   ];
-  
-  return sources
-    .filter(s => selectedSources.includes(s.source))
-    .map(s => ({
-      source: s.source,
-      count: s.count,
-      avgScore: s.avgScore,
-      fill: s.color,
+
+  const combined = new Map(defaultSources.map((item) => [item.source, item]));
+
+  (stats?.sources ?? []).forEach((entry: { source: string; count: number }) => {
+    const existing = combined.get(entry.source);
+    combined.set(entry.source, {
+      source: entry.source,
+      count: entry.count ?? existing?.count ?? 0,
+      avgScore: existing?.avgScore ?? 0,
+      fill: existing?.fill ?? COLORS[entry.source as keyof typeof COLORS] ?? "#8b5cf6",
+    });
+  });
+
+  return Array.from(combined.values())
+    .filter((source) => selectedSources.includes(source.source))
+    .map((source) => ({
+      source: source.source,
+      count: source.count,
+      avgScore: source.avgScore,
+      fill: source.fill,
     }));
 }
 
 function generateTopicData(stats: any): TopicData[] {
+  if (stats?.topTopics?.length) {
+    return stats.topTopics.map((topic: any) => ({
+      topic: topic.name,
+      count: topic.count,
+      avgScore: topic.avgDiscoveryScore ?? 0,
+    }));
+  }
+
   return [
     { topic: "quantum computing", count: 23, avgScore: 78.5 },
     { topic: "machine learning", count: 18, avgScore: 65.2 },

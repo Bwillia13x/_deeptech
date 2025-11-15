@@ -37,6 +37,7 @@ COPY --from=builder /usr/local/bin/harvest* /usr/local/bin/
 # Copy application code
 COPY --chown=harvester:harvester src/ ./src/
 COPY --chown=harvester:harvester config/ ./config/
+COPY --chown=harvester:harvester scripts/ ./scripts/
 
 # Create directories for data and logs
 RUN mkdir -p /app/var /app/data /app/logs && \

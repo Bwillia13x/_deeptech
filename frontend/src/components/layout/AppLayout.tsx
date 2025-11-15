@@ -38,6 +38,10 @@ function Header() {
             <TopNavLink to="/dashboard">Dashboard</TopNavLink>
             <TopNavLink to="/analytics">Analytics</TopNavLink>
             <TopNavLink to="/discoveries">Discoveries</TopNavLink>
+            <TopNavLink to="/topics">Topics</TopNavLink>
+            <TopNavLink to="/entities">Entities</TopNavLink>
+            <TopNavLink to="/experiments">A/B Testing</TopNavLink>
+            <TopNavLink to="/labels">Ground Truth</TopNavLink>
             <TopNavLink to="/signals">Signals</TopNavLink>
             <TopNavLink to="/snapshots">Snapshots</TopNavLink>
             <TopNavLink to="/settings">Settings</TopNavLink>

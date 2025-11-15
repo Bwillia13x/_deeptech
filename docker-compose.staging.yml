@@ -1,0 +1,284 @@
+x-app-env: &app-env
+  PYTHONPATH: /app/src
+  LOG_LEVEL: info
+  ENABLE_PROMETHEUS_METRICS: "true"
+  RATE_LIMIT_ENABLED: "true"
+  RATE_LIMIT_REDIS_HOST: redis
+  RATE_LIMIT_REDIS_PORT: 6379
+  CACHE_REDIS_HOST: redis
+  CACHE_REDIS_PORT: 6379
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: signal-harvester-staging-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-signal_harvester}
+      POSTGRES_USER: ${POSTGRES_USER:-harvest}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-harvest}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-harvest}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app
+
+  redis:
+    image: redis:7-alpine
+    container_name: signal-harvester-staging-redis
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - app
+
+  schema-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: signal-harvester-staging-schema-init
+    command: ["python", "scripts/init_postgres_schema.py"]
+    restart: "no"
+    env_file:
+      - .env.staging
+    environment:
+      <<: *app-env
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-harvest}:${POSTGRES_PASSWORD:-harvest}@db:5432/${POSTGRES_DB:-signal_harvester}}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app
+
+  signal-harvester:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: signal-harvester-staging-api
+    restart: unless-stopped
+    env_file:
+      - .env.staging
+    environment:
+      <<: *app-env
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-harvest}:${POSTGRES_PASSWORD:-harvest}@db:5432/${POSTGRES_DB:-signal_harvester}}
+      RATE_LIMIT_REDIS_DB: 2
+      CACHE_REDIS_DB: 1
+      PROMETHEUS_METRICS_PATH: /metrics/prometheus
+      UVICORN_HOST: 0.0.0.0
+      UVICORN_PORT: 8000
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ./var:/app/var
+      - ./data:/app/data
+    depends_on:
+      schema-init:
+        condition: service_completed_successfully
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "8000"
+    networks:
+      - app
+      - monitoring
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import httpx; response = httpx.get('http://localhost:8000/health/ready', timeout=2); exit(0 if response.status_code == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: signal-harvester-staging-scheduler
+    command: ["harvest", "daemon", "--interval", "300"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "true"]
+    env_file:
+      - .env.staging
+    environment:
+      <<: *app-env
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-harvest}:${POSTGRES_PASSWORD:-harvest}@db:5432/${POSTGRES_DB:-signal_harvester}}
+    depends_on:
+      signal-harvester:
+        condition: service_healthy
+    volumes:
+      - ./var:/app/var
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./config:/app/config:ro
+    networks:
+      - app
+
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: signal-harvester-staging-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus/prometheus-docker.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+      - "--web.enable-admin-api"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:9090/-/healthy",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:10.1.5
+    container_name: signal-harvester-staging-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=https://${GRAFANA_HOST:-grafana.local}
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+    depends_on:
+      prometheus:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3000/api/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - monitoring
+
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: signal-harvester-staging-alertmanager
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--web.external-url=https://${ALERTMANAGER_HOST:-alertmanager.local}"
+    depends_on:
+      prometheus:
+        condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:9093/-/healthy",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - monitoring
+
+  node-exporter:
+    image: prom/node-exporter:v1.6.1
+    container_name: signal-harvester-staging-node-exporter
+    restart: unless-stopped
+    command:
+      - "--collector.disable-defaults"
+      - "--collector.cpu"
+      - "--collector.meminfo"
+      - "--collector.diskstats"
+      - "--collector.netdev"
+      - "--collector.loadavg"
+    networks:
+      - monitoring
+
+  edge:
+    image: caddy:2.7
+    container_name: signal-harvester-staging-edge
+    restart: unless-stopped
+    env_file:
+      - .env.staging
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/staging/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      signal-harvester:
+        condition: service_healthy
+      grafana:
+        condition: service_started
+      prometheus:
+        condition: service_started
+      alertmanager:
+        condition: service_started
+    networks:
+      - app
+      - monitoring
+
+networks:
+  app:
+    driver: bridge
+  monitoring:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  alertmanager_data:
+  caddy_data:
+  caddy_config:

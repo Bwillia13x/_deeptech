@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import json
 import os
 import sqlite3
 import time
@@ -9,12 +10,12 @@ import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Awaitable, Callable, Dict, List, Optional, cast
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Literal, cast
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -22,9 +23,11 @@ from . import __version__
 from .cache import cached, get_cache_stats, invalidate_cache
 from .config import Settings, load_settings
 from .db import get_tweet, init_db, list_top, run_migrations
+from .health import HealthCheckResponse, check_liveness, check_readiness, check_startup
 from .logger import get_logger
+from .metrics import get_metrics
 from .pipeline import run_pipeline
-from .prometheus_metrics import PrometheusMiddleware, get_prometheus_metrics
+from .rate_limiter import RateLimitTier, get_rate_limiter
 from .validation import (
     validate_api_key,
     validate_hours,
@@ -202,7 +205,19 @@ class Entity(BaseModel):
     entityType: str  # person, lab, organization
     name: str
     description: Optional[str] = None
-    accounts: Optional[List[Dict[str, Any]]] = None
+    homepageUrl: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    accounts: Optional[List["EntityAccount"]] = None
+    accountCount: Optional[int] = None
+    artifactCount: Optional[int] = None
+    influenceScore: Optional[float] = None
+    lastActivityDate: Optional[str] = None
+    impactMetrics: Optional[Dict[str, Any]] = None
+    collaborationNetwork: Optional[Dict[str, Any]] = None
+    researchTrajectory: Optional[Dict[str, Any]] = None
+    expertiseAreas: Optional[List[str]] = None
+    platformActivity: Optional[Dict[str, Any]] = None
+    mergedIntoId: Optional[int] = None
     createdAt: Optional[str] = None  # ISO string
     updatedAt: Optional[str] = None  # ISO string
 
@@ -236,6 +251,240 @@ class PaginatedArtifacts(BaseModel):
     nextCursor: Optional[str] = None
     hasMore: bool
     total: Optional[int] = None
+
+
+class PaginatedEntities(BaseModel):
+    """Paginated entities response."""
+    items: List[Entity]
+    total: int
+    page: int
+    pageSize: int
+
+
+class EntitySearchResult(BaseModel):
+    """Entity search result with relevance score."""
+    entity: Entity
+    relevanceScore: float
+    matchReason: Optional[str] = None
+
+
+class TopicEvolutionEvent(BaseModel):
+    """Topic evolution event (merge, split, emergence, decline)."""
+    id: int
+    topicId: int
+    eventType: str  # 'emerge', 'merge', 'split', 'decline', 'growth'
+    relatedTopicIds: Optional[List[int]] = None
+    eventStrength: Optional[float] = None  # 0-1 confidence score
+    eventDate: str  # ISO string
+    description: Optional[str] = None
+    createdAt: Optional[str] = None  # ISO string
+
+
+class TopicMergeCandidate(BaseModel):
+    """Topic merge candidate detection."""
+    primaryTopic: Topic
+    secondaryTopic: Topic
+    currentSimilarity: float
+    overlapTrend: float
+    confidence: float
+    eventType: str = "merge"
+    timestamp: str  # ISO string
+
+
+class TopicSplitDetection(BaseModel):
+    """Topic split detection result."""
+    primaryTopic: Topic
+    coherenceDrop: float
+    subClusters: Optional[List[Dict[str, Any]]] = None
+    confidence: float
+    eventType: str = "split"
+    timestamp: str  # ISO string
+
+
+class TopicEmergenceMetrics(BaseModel):
+    """Topic emergence metrics."""
+    growthRate: float
+    acceleration: float
+    velocity: float
+    emergenceScore: float  # 0-100 composite score
+
+
+class TopicGrowthPrediction(BaseModel):
+    """Topic growth prediction with confidence intervals."""
+    dailyGrowthRate: float
+    predictedCounts: List[float]
+    confidence: float
+    trend: str  # 'rapidly_emerging', 'emerging', 'stable', 'declining', 'insufficient_data'
+    predictionWindowDays: int
+
+
+class RelatedTopic(BaseModel):
+    """Related topic with similarity score."""
+    id: int
+    name: str
+    taxonomyPath: Optional[str] = None
+    similarity: float
+
+
+class TopicStats(BaseModel):
+    """Comprehensive topic statistics."""
+    topicId: int
+    name: str
+    taxonomyPath: Optional[str] = None
+    totalArtifacts: int
+    avgDiscoveryScore: float
+    emergenceMetrics: Optional[TopicEmergenceMetrics] = None
+    growthPrediction: Optional[TopicGrowthPrediction] = None
+    relatedTopics: Optional[List[RelatedTopic]] = None
+    recentEvents: Optional[List[TopicEvolutionEvent]] = None
+    timeline: Optional[List[TopicTimeline]] = None
+
+
+class EntityAccount(BaseModel):
+    """Entity account model for detailed view."""
+    id: Optional[int] = None
+    platform: str
+    handle: Optional[str] = None
+    accountId: Optional[str] = None
+    username: Optional[str] = None
+    followerCount: Optional[int] = None
+    url: Optional[str] = None
+    confidence: Optional[float] = None
+    metadata: Optional[Dict[str, Any]] = None
+    createdAt: Optional[str] = None
+    updatedAt: Optional[str] = None
+
+
+class EntityStats(BaseModel):
+    """Entity statistics model."""
+    entityId: int
+    artifactCount: int
+    avgDiscoveryScore: float
+    totalImpact: float
+    hIndexProxy: int
+    activeDays: int
+    collaborationCount: int
+    topTopics: List[Dict[str, Any]]
+    sourceBreakdown: List[Dict[str, Any]]
+    activityTimeline: List[Dict[str, Any]]
+
+
+class SimilarityBreakdown(BaseModel):
+    """Weighted similarity component scores."""
+    name: float
+    affiliation: float
+    domain: float
+    accounts: float
+
+
+class EntityCandidate(BaseModel):
+    """Entity candidate with similarity breakdown."""
+    entity: Entity
+    similarity: float
+    components: SimilarityBreakdown
+
+
+class MergeEntityRequest(BaseModel):
+    """Request payload for manual entity merge."""
+    candidateEntityId: int
+    similarityScore: Optional[float] = None
+    reviewer: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class MergeEntityResponse(BaseModel):
+    """Response for merge actions."""
+    primaryEntityId: int
+    mergedEntityId: int
+    status: str = "merged"
+
+
+class EntityDecisionRequest(BaseModel):
+    """Request payload for non-merge entity decisions."""
+    candidateEntityId: int
+    decision: Literal["ignore", "watch", "needs_review"]
+    similarityScore: Optional[float] = None
+    reviewer: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class EntityMergeHistoryItem(BaseModel):
+    """History entry for merge/ignore actions."""
+    id: int
+    primaryEntityId: int
+    candidateEntityId: int
+    decision: str
+    similarityScore: Optional[float] = None
+    reviewer: Optional[str] = None
+    notes: Optional[str] = None
+    createdAt: str
+    primaryName: Optional[str] = None
+    candidateName: Optional[str] = None
+
+
+# ============================================================================
+# Experiments & A/B Testing Models
+# ============================================================================
+
+class Experiment(BaseModel):
+    """Experiment response model for A/B testing scoring algorithms."""
+    id: int
+    name: str
+    description: Optional[str] = None
+    config: Dict[str, Any]
+    baselineId: Optional[int] = None
+    status: str
+    createdAt: str
+    updatedAt: str
+
+
+class ExperimentRun(BaseModel):
+    """Experiment run response model with metrics."""
+    id: int
+    experimentId: int
+    artifactCount: int
+    truePositives: int
+    falsePositives: int
+    trueNegatives: int
+    falseNegatives: int
+    precision: float
+    recall: float
+    f1Score: float
+    accuracy: float
+    startedAt: str
+    completedAt: str
+    status: str
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class ExperimentComparison(BaseModel):
+    """Experiment comparison response with deltas and winner."""
+    experimentA: Dict[str, Any]
+    experimentB: Dict[str, Any]
+    deltas: Dict[str, float]
+    winner: str
+
+
+class DiscoveryLabel(BaseModel):
+    """Discovery label for ground truth annotation."""
+    id: int
+    artifactId: int
+    label: str
+    confidence: float
+    annotator: Optional[str] = None
+    notes: Optional[str] = None
+    createdAt: str
+    updatedAt: str
+    artifactTitle: Optional[str] = None
+    artifactSource: Optional[str] = None
+
+
+class CreateExperimentRequest(BaseModel):
+    """Request model for creating experiments."""
+    name: str
+    description: Optional[str] = None
+    config: Dict[str, Any]
+    baselineId: Optional[int] = None
 
 
 # In-memory bulk jobs storage (for MVP)
@@ -275,43 +524,6 @@ def init_sentry() -> None:
     except Exception as e:
         log.warning("Failed to initialize Sentry: %s", e)
         log.info("Continuing without error tracking")
-
-
-class SimpleRateLimiter:
-    """Simple in-memory rate limiter for API endpoints."""
-    
-    def __init__(self, times: int = 10, seconds: int = 60):
-        self.times = times
-        self.seconds = seconds
-        # key: (client_id, path) -> list of timestamps
-        self.requests: defaultdict[tuple[str, str], list[float]] = defaultdict(list)
-    
-    def is_allowed(self, client_id: str, path: str) -> bool:
-        """Check if request is allowed under rate limit."""
-        key = (client_id, path)
-        now = time.time()
-        
-        # Clean old requests
-        cutoff = now - self.seconds
-        self.requests[key] = [req_time for req_time in self.requests[key] if req_time > cutoff]
-        
-        # Check limit
-        if len(self.requests[key]) >= self.times:
-            return False
-        
-        # Record this request
-        self.requests[key].append(now)
-        return True
-    
-    def get_retry_after(self, client_id: str, path: str) -> int:
-        """Get seconds until retry is allowed."""
-        key = (client_id, path)
-        if not self.requests[key]:
-            return 0
-        
-        oldest_request = min(self.requests[key])
-        retry_after = int(self.seconds - (time.time() - oldest_request) + 1)
-        return max(0, retry_after)
 
 
 async def _process_bulk_job(job_id: str) -> None:
@@ -428,8 +640,6 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
     state: Dict[str, Any] = {}
     state["settings_path"] = settings_path
     state["api_key"] = os.getenv("HARVEST_API_KEY")
-    state["rate_limiter_enabled"] = os.getenv("RATE_LIMITING_ENABLED", "true").lower() == "true"
-    state["rate_limiter"] = SimpleRateLimiter(times=10, seconds=60) if state["rate_limiter_enabled"] else None
 
     # Load settings and ensure DB
     settings = load_settings(settings_path)
@@ -437,8 +647,9 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
     run_migrations(settings.app.database_path)
     state["settings"] = settings
     
-    # Initialize connection pool if enabled
-    if settings.app.connection_pool.enabled:
+    # Initialize SQLite connection pool only when using SQLite
+    is_sqlite = settings.app.database.is_sqlite
+    if settings.app.connection_pool.enabled and is_sqlite:
         from .db_pool import init_pool
         pool = init_pool(
             db_path=settings.app.database_path,
@@ -454,7 +665,8 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
         )
     else:
         state["connection_pool"] = None
-        log.info("Connection pool disabled, using direct connections")
+        reason = "disabled via settings" if not settings.app.connection_pool.enabled else "not applicable for PostgreSQL"
+        log.info("Connection pool inactive (%s). Using direct connections", reason)
 
     cors_origins = [o.strip() for o in (os.getenv("CORS_ORIGINS") or "*").split(",") if o.strip()]
     app.add_middleware(
@@ -466,11 +678,63 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
     )
     app.add_middleware(SecurityHeadersMiddleware)
     
-    # Add Prometheus metrics middleware
-    app.add_middleware(PrometheusMiddleware)
-    
     # Add GZip compression for responses > 1KB
     app.add_middleware(GZipMiddleware, minimum_size=1000)
+    
+    # Add distributed rate limiting middleware
+    def get_tier_from_request(request: Request) -> RateLimitTier:
+        """Determine rate limit tier from request API key."""
+        api_key = request.headers.get("x-api-key")
+        if not api_key:
+            return RateLimitTier.ANONYMOUS
+        
+        # Check if API key is valid
+        expected = state["api_key"]
+        if api_key == expected:
+            # For now, all authenticated users get API_KEY tier
+            # In the future, check database for premium/admin status
+            return RateLimitTier.API_KEY
+        
+        # Invalid API key still counts as anonymous
+        return RateLimitTier.ANONYMOUS
+    
+    @app.middleware("http")
+    async def rate_limit_middleware(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        """Distributed rate limiting middleware with X-RateLimit-* headers."""
+        # Get rate limiter instance
+        limiter = get_rate_limiter()
+        
+        # Generate client identifier from IP address
+        identifier = request.client.host if request.client else "unknown"
+        
+        # Determine tier from API key
+        tier = get_tier_from_request(request)
+        
+        # Check rate limit
+        result = limiter.check_rate_limit(identifier, tier)
+        
+        if not result.allowed:
+            # Rate limit exceeded - return 429
+            return JSONResponse(
+                status_code=429,
+                content={"detail": f"Rate limit exceeded. Retry after {result.retry_after} seconds."},
+                headers={
+                    "Retry-After": str(result.retry_after),
+                    "X-RateLimit-Limit": str(result.limit),
+                    "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Reset": str(result.reset_at),
+                }
+            )
+        
+        # Process request
+        response = await call_next(request)
+        
+        # Add rate limit headers to response
+        response.headers["X-RateLimit-Limit"] = str(result.limit)
+        response.headers["X-RateLimit-Remaining"] = str(result.remaining)
+        response.headers["X-RateLimit-Reset"] = str(result.reset_at)
+        
+        return response
 
     def get_settings_dep() -> Settings:
         return cast(Settings, state["settings"])
@@ -482,25 +746,6 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
             validated_key = validate_api_key(x_api_key)
             if (validated_key or "") != expected:
                 raise HTTPException(status_code=401, detail="Invalid API key")
-    
-    def check_rate_limit(request: Request) -> None:
-        """Check rate limit for the request."""
-        if not state["rate_limiter"]:
-            return
-        
-        # Get client identifier (IP + user agent)
-        client_ip = request.client.host if request.client else "unknown"
-        user_agent = request.headers.get("user-agent", "unknown")
-        client_id = f"{client_ip}:{user_agent[:20]}"  # Truncate for safety
-        path = request.url.path
-        
-        if not state["rate_limiter"].is_allowed(client_id, path):
-            retry_after = state["rate_limiter"].get_retry_after(client_id, path)
-            raise HTTPException(
-                status_code=429,
-                detail=f"Rate limit exceeded. Retry after {retry_after} seconds.",
-                headers={"Retry-After": str(retry_after)}
-            )
 
     @app.get(
         "/top",
@@ -565,7 +810,7 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
         Requires API key authentication.
         """,
         response_model=Dict[str, int],
-        dependencies=[Depends(require_api_key), Depends(check_rate_limit)],
+        dependencies=[Depends(require_api_key)],
     )
     def refresh(
         notify_threshold: Optional[float] = Query(
@@ -602,55 +847,56 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
         "/health",
         tags=["monitoring"],
         summary="Health check",
-        description="Check the health status of the API and its dependencies.",
-        response_model=Dict[str, Any],
+        description="Run the readiness checks that back the Kubernetes probes.",
+        response_model=HealthCheckResponse,
     )
-    def health_check() -> Dict[str, Any]:
-        """Health check endpoint for monitoring and readiness probes."""
-        health_status: Dict[str, Any] = {
-            "status": "healthy",
-            "version": __version__,
-            "timestamp": "",
-            "checks": {
-                "database": "unknown",
-                "settings": "unknown"
-            }
-        }
-        
-        # Check settings
-        db_path = "var/app.db"  # Default
-        try:
-            settings = load_settings()
-            db_path = settings.app.database_path
-            health_status["checks"]["settings"] = "ok"
-        except Exception as e:
-            health_status["checks"]["settings"] = f"error: {str(e)}"
-            health_status["status"] = "unhealthy"
-        
-        # Check database connectivity
-        try:
-            conn = sqlite3.connect(db_path, timeout=1.0)
-            conn.execute("SELECT 1")
-            conn.close()
-            health_status["checks"]["database"] = "ok"
-        except Exception as e:
-            health_status["checks"]["database"] = f"error: {str(e)}"
-            health_status["status"] = "unhealthy"
-        
-        health_status["timestamp"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        
-        return health_status
+    async def health_check() -> HealthCheckResponse:
+        """Unified health endpoint using shared readiness checks."""
+        return await check_readiness()
 
     @app.get(
-        "/prometheus",
+        "/metrics/prometheus",
         tags=["monitoring"],
         summary="Prometheus metrics",
-        description="Prometheus-compatible metrics endpoint for monitoring and alerting.",
-        include_in_schema=False,  # Hide from OpenAPI docs
+        description="Comprehensive Prometheus metrics from new metrics module.",
+        response_class=PlainTextResponse,
     )
-    def prometheus_endpoint() -> Response:
-        """Prometheus metrics endpoint in text/plain format."""
-        return get_prometheus_metrics()
+    def metrics_prometheus() -> bytes:
+        """Prometheus metrics endpoint with comprehensive instrumentation."""
+        return get_metrics()
+    
+    @app.get(
+        "/health/live",
+        tags=["monitoring"],
+        summary="Liveness probe",
+        description="Kubernetes liveness probe - lightweight process check (<100ms).",
+        response_model=HealthCheckResponse,
+    )
+    async def liveness() -> HealthCheckResponse:
+        """Liveness probe for Kubernetes - checks if process is responsive."""
+        return await check_liveness()
+    
+    @app.get(
+        "/health/ready",
+        tags=["monitoring"],
+        summary="Readiness probe",
+        description="Kubernetes readiness probe - comprehensive dependency checks (<5s).",
+        response_model=HealthCheckResponse,
+    )
+    async def readiness() -> HealthCheckResponse:
+        """Readiness probe for Kubernetes - checks if ready to serve traffic."""
+        return await check_readiness()
+    
+    @app.get(
+        "/health/startup",
+        tags=["monitoring"],
+        summary="Startup probe",
+        description="Kubernetes startup probe - extended initialization check (<30s).",
+        response_model=HealthCheckResponse,
+    )
+    async def startup() -> HealthCheckResponse:
+        """Startup probe for Kubernetes - checks if initialization is complete."""
+        return await check_startup()
 
     @app.get(
         "/pool/stats",
@@ -778,17 +1024,6 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
             metrics_data["error"] = str(e)
         
         return metrics_data
-
-    @app.get(
-        "/metrics/prometheus",
-        tags=["monitoring"],
-        summary="Prometheus metrics",
-        description="Expose Prometheus metrics in text format.",
-    )
-    def prometheus_metrics() -> Response:
-        from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
-        data = generate_latest(REGISTRY)
-        return Response(content=data, media_type=CONTENT_TYPE_LATEST)
 
     # ========================================================================
     # Signals & Snapshots Endpoints
@@ -1438,6 +1673,83 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
         )
 
     # Cached helper function for entity details
+
+    def _serialize_entity_account(account: Dict[str, Any]) -> EntityAccount:
+        metadata = account.get("metadata")
+        if metadata is None and account.get("raw_json"):
+            try:
+                metadata = json.loads(account["raw_json"])
+            except json.JSONDecodeError:
+                metadata = None
+
+        return EntityAccount(
+            id=account.get("id"),
+            platform=account.get("platform", "unknown"),
+            handle=account.get("handle") or account.get("handle_or_id"),
+            accountId=account.get("account_id") or account.get("handle_or_id"),
+            username=account.get("username"),
+            followerCount=account.get("follower_count"),
+            url=account.get("url"),
+            confidence=account.get("confidence"),
+            metadata=metadata,
+            createdAt=account.get("created_at"),
+            updatedAt=account.get("updated_at"),
+        )
+
+
+    def _build_entity_model(raw_entity: Dict[str, Any]) -> Entity:
+        accounts_raw = raw_entity.get("accounts")
+        account_models = (
+            [_serialize_entity_account(acc) for acc in accounts_raw]
+            if isinstance(accounts_raw, list) and accounts_raw
+            else None
+        )
+
+        expertise = raw_entity.get("expertise_areas")
+        if isinstance(expertise, str):
+            try:
+                expertise = json.loads(expertise)
+            except json.JSONDecodeError:
+                expertise = None
+
+        return Entity(
+            id=raw_entity["id"],
+            entityType=raw_entity.get("entity_type") or raw_entity.get("type"),
+            name=raw_entity["name"],
+            description=raw_entity.get("description"),
+            homepageUrl=raw_entity.get("homepage_url"),
+            metadata=raw_entity.get("metadata") or None,
+            accounts=account_models,
+            accountCount=raw_entity.get("account_count"),
+            artifactCount=raw_entity.get("artifact_count"),
+            influenceScore=raw_entity.get("influence_score"),
+            lastActivityDate=raw_entity.get("last_activity_date"),
+            impactMetrics=raw_entity.get("impact_metrics"),
+            collaborationNetwork=raw_entity.get("collaboration_network"),
+            researchTrajectory=raw_entity.get("research_trajectory"),
+            expertiseAreas=expertise,
+            platformActivity=raw_entity.get("platform_activity"),
+            mergedIntoId=raw_entity.get("merged_into_id"),
+            createdAt=raw_entity.get("created_at"),
+            updatedAt=raw_entity.get("updated_at"),
+        )
+
+
+    def _serialize_history_entry(row: Dict[str, Any]) -> EntityMergeHistoryItem:
+        return EntityMergeHistoryItem(
+            id=row["id"],
+            primaryEntityId=row["primary_entity_id"],
+            candidateEntityId=row["candidate_entity_id"],
+            decision=row["decision"],
+            similarityScore=row.get("similarity_score"),
+            reviewer=row.get("reviewer"),
+            notes=row.get("notes"),
+            createdAt=row.get("created_at"),
+            primaryName=row.get("primary_name"),
+            candidateName=row.get("candidate_name"),
+        )
+
+
     @cached(prefix='entity', ttl_key='entity_ttl')
     def _get_entity_cached(db_path: str, entity_id: int) -> Optional[Entity]:
         """Cached entity details results."""
@@ -1447,26 +1759,45 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
         if not raw_entity:
             return None
         
-        entity = Entity(
-            id=raw_entity["id"],
-            entityType=raw_entity["entity_type"],
-            name=raw_entity["name"],
-            description=raw_entity.get("description"),
-            createdAt=raw_entity.get("created_at"),
-            updatedAt=raw_entity.get("updated_at"),
-            accounts=[
-                {
-                    "platform": acc["platform"],
-                    "accountId": acc["account_id"],
-                    "username": acc.get("username"),
-                    "followerCount": acc.get("follower_count"),
-                    "url": acc.get("url"),
-                }
-                for acc in raw_entity.get("accounts", [])
-            ],
+        return _build_entity_model(raw_entity)
+
+    @app.get(
+        "/entities",
+        tags=["discovery"],
+        summary="List entities",
+        description="Get paginated list of entities with optional filtering by type and search query.",
+        response_model=PaginatedEntities,
+    )
+    def list_entities(
+        entity_type: Optional[str] = Query(None, description="Filter by entity type: person, lab, or org"),
+        search: Optional[str] = Query(None, description="Search entities by name or description"),
+        page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+        page_size: int = Query(20, ge=1, le=100, description="Number of items per page"),
+        sort: Optional[str] = Query(None, description="Sort field: name, created_at, artifact_count"),
+        order: str = Query("asc", description="Sort order: asc or desc"),
+        settings: Settings = Depends(get_settings_dep),
+    ) -> PaginatedEntities:
+        """List entities with filtering and pagination."""
+        from .db import list_entities
+        
+        raw_entities, total = list_entities(
+            settings.app.database_path,
+            entity_type=entity_type,
+            search=search,
+            page=page,
+            page_size=page_size,
+            sort=sort,
+            order=order,
         )
         
-        return entity
+        entities = [_build_entity_model(raw) for raw in raw_entities]
+        
+        return PaginatedEntities(
+            items=entities,
+            total=total,
+            page=page,
+            pageSize=page_size,
+        )
 
     @app.get(
         "/entities/{entity_id}",
@@ -1485,6 +1816,265 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Entity not found")
         
         return entity
+
+    @app.get(
+        "/entities/search",
+        tags=["discovery"],
+        summary="Search entities",
+        description="Search entities by name, description, or affiliation with relevance scoring.",
+        response_model=List[EntitySearchResult],
+    )
+    def search_entities(
+        q: str = Query(..., description="Search query"),
+        entity_type: Optional[str] = Query(None, description="Filter by entity type"),
+        limit: int = Query(10, ge=1, le=50, description="Maximum number of results"),
+        settings: Settings = Depends(get_settings_dep),
+    ) -> List[EntitySearchResult]:
+        """Search entities with relevance scoring."""
+        from .db import search_entities
+        
+        raw_results = search_entities(
+            settings.app.database_path,
+            query=q,
+            entity_type=entity_type,
+            limit=limit,
+        )
+        
+        # Convert to search result models
+        results = []
+        for raw in raw_results:
+            results.append(EntitySearchResult(
+                entity=_build_entity_model(raw),
+                relevanceScore=raw.get("relevance_score", 0.0),
+                matchReason=raw.get("match_reason", ""),
+            ))
+        
+        return results
+
+    @app.get(
+        "/entities/{entity_id}/stats",
+        tags=["discovery"],
+        summary="Get entity statistics",
+        description="Get comprehensive statistics for an entity including artifact counts, scores, and collaboration metrics.",
+        response_model=EntityStats,
+    )
+    def get_entity_stats(
+        entity_id: int,
+        days: int = Query(30, ge=1, description="Lookback period in days"),
+        settings: Settings = Depends(get_settings_dep),
+    ) -> EntityStats:
+        """Get entity statistics."""
+        from .db import get_entity_stats
+        
+        stats = get_entity_stats(settings.app.database_path, entity_id, days)
+        if not stats:
+            raise HTTPException(status_code=404, detail="Entity not found or no stats available")
+        
+        return EntityStats(**stats)
+
+    @app.get(
+        "/entities/{entity_id}/candidates",
+        tags=["identity"],
+        summary="Get entity merge candidates",
+        description="List high-confidence candidate entities for manual review",
+        response_model=List[EntityCandidate],
+    )
+    def get_entity_candidates(
+        entity_id: int,
+        limit: int = Query(10, ge=1, le=50, description="Maximum number of candidates to return"),
+        threshold: float = Query(0.7, ge=0.0, le=1.0, description="Minimum similarity score"),
+        settings: Settings = Depends(get_settings_dep),
+    ) -> List[EntityCandidate]:
+        from .db import get_entity_with_accounts, list_all_entities
+        from .identity_resolution import find_candidate_matches_detailed
+
+        db_path = settings.app.database_path
+        entity = get_entity_with_accounts(db_path, entity_id)
+        if not entity:
+            raise HTTPException(status_code=404, detail="Entity not found")
+
+        all_entities = [e for e in list_all_entities(db_path) if not e.get("merged_into_id")]
+        matches = find_candidate_matches_detailed(entity, all_entities, threshold=threshold)
+
+        candidates: List[EntityCandidate] = []
+        for candidate, similarity, components in matches[:limit]:
+            candidates.append(
+                EntityCandidate(
+                    entity=_build_entity_model(candidate),
+                    similarity=round(float(similarity), 4),
+                    components=SimilarityBreakdown(**components),
+                )
+            )
+
+        return candidates
+
+    @app.post(
+        "/entities/{entity_id}/merge",
+        tags=["identity"],
+        summary="Merge duplicate entity",
+        response_model=MergeEntityResponse,
+    )
+    def merge_entity_endpoint(
+        entity_id: int,
+        payload: MergeEntityRequest = Body(...),
+        settings: Settings = Depends(get_settings_dep),
+        _: None = Depends(require_api_key),
+    ) -> MergeEntityResponse:
+        from .db import get_entity_with_accounts, record_entity_merge_history
+        from .identity_resolution import merge_entities
+
+        db_path = settings.app.database_path
+        if entity_id == payload.candidateEntityId:
+            raise HTTPException(status_code=400, detail="Cannot merge an entity with itself")
+
+        primary = get_entity_with_accounts(db_path, entity_id)
+        if not primary:
+            raise HTTPException(status_code=404, detail="Primary entity not found")
+
+        candidate = get_entity_with_accounts(db_path, payload.candidateEntityId)
+        if not candidate:
+            raise HTTPException(status_code=404, detail="Candidate entity not found")
+
+        merged = merge_entities(db_path, entity_id, payload.candidateEntityId)
+        if not merged:
+            raise HTTPException(status_code=409, detail="Unable to merge entities")
+
+        record_entity_merge_history(
+            db_path,
+            primary_entity_id=entity_id,
+            candidate_entity_id=payload.candidateEntityId,
+            decision="merge",
+            similarity_score=payload.similarityScore,
+            reviewer=payload.reviewer,
+            notes=payload.notes,
+        )
+
+        invalidate_cache("entity:*")
+        return MergeEntityResponse(
+            primaryEntityId=entity_id,
+            mergedEntityId=payload.candidateEntityId,
+        )
+
+    @app.post(
+        "/entities/{entity_id}/decisions",
+        tags=["identity"],
+        summary="Record non-merge decision",
+        response_model=EntityMergeHistoryItem,
+    )
+    def record_entity_decision(
+        entity_id: int,
+        payload: EntityDecisionRequest = Body(...),
+        settings: Settings = Depends(get_settings_dep),
+        _: None = Depends(require_api_key),
+    ) -> EntityMergeHistoryItem:
+        from .db import (
+            get_entity_with_accounts,
+            list_entity_merge_history,
+            record_entity_merge_history,
+        )
+
+        db_path = settings.app.database_path
+        entity = get_entity_with_accounts(db_path, entity_id)
+        if not entity:
+            raise HTTPException(status_code=404, detail="Entity not found")
+
+        candidate = get_entity_with_accounts(db_path, payload.candidateEntityId)
+        if not candidate:
+            raise HTTPException(status_code=404, detail="Candidate entity not found")
+
+        record_entity_merge_history(
+            db_path,
+            primary_entity_id=entity_id,
+            candidate_entity_id=payload.candidateEntityId,
+            decision=payload.decision,
+            similarity_score=payload.similarityScore,
+            reviewer=payload.reviewer,
+            notes=payload.notes,
+        )
+
+        history_rows = list_entity_merge_history(db_path, entity_id=entity_id, limit=1)
+        if not history_rows:
+            raise HTTPException(status_code=500, detail="Failed to persist decision")
+
+        return _serialize_history_entry(history_rows[0])
+
+    @app.get(
+        "/entities/{entity_id}/history",
+        tags=["identity"],
+        summary="Get entity merge history",
+        response_model=List[EntityMergeHistoryItem],
+    )
+    def get_entity_history(
+        entity_id: int,
+        limit: int = Query(50, ge=1, le=200, description="Maximum number of history entries"),
+        settings: Settings = Depends(get_settings_dep),
+    ) -> List[EntityMergeHistoryItem]:
+        from .db import get_entity_with_accounts, list_entity_merge_history
+
+        db_path = settings.app.database_path
+        entity = get_entity_with_accounts(db_path, entity_id)
+        if not entity:
+            raise HTTPException(status_code=404, detail="Entity not found")
+
+        history_rows = list_entity_merge_history(db_path, entity_id=entity_id, limit=limit)
+        return [_serialize_history_entry(row) for row in history_rows]
+
+    @app.get(
+        "/entities/{entity_id}/artifacts",
+        tags=["discovery"],
+        summary="Get entity artifacts",
+        description="Get artifacts authored by this entity with optional filtering and pagination.",
+        response_model=PaginatedArtifacts,
+    )
+    def get_entity_artifacts(
+        entity_id: int,
+        source: Optional[str] = Query(None, description="Filter by source"),
+        min_score: float = Query(0, ge=0, le=100, description="Minimum discovery score"),
+        limit: int = Query(20, ge=1, le=100, description="Number of artifacts to return"),
+        offset: int = Query(0, ge=0, description="Offset for pagination"),
+        settings: Settings = Depends(get_settings_dep),
+    ) -> PaginatedArtifacts:
+        """Get artifacts for an entity."""
+        from .db import get_entity_artifacts
+        
+        raw_artifacts, total = get_entity_artifacts(
+            settings.app.database_path,
+            entity_id,
+            source=source,
+            min_score=min_score,
+            limit=limit,
+            offset=offset,
+        )
+        
+        # Convert to Discovery models
+        artifacts = []
+        for raw in raw_artifacts:
+            artifacts.append(Discovery(
+                id=raw["id"],
+                type=raw["type"],
+                source=raw["source"],
+                sourceId=raw["source_id"],
+                title=raw.get("title"),
+                text=raw.get("text"),
+                url=raw.get("url"),
+                publishedAt=raw.get("published_at"),
+                authorEntityIds=raw.get("author_entity_ids"),
+                rawJson=raw.get("raw_json"),
+                createdAt=raw["created_at"],
+                updatedAt=raw.get("updated_at"),
+                novelty=raw.get("novelty", 0),
+                emergence=raw.get("emergence", 0),
+                obscurity=raw.get("obscurity", 0),
+                discoveryScore=raw.get("discovery_score", 0),
+                computedAt=raw.get("computed_at"),
+            ))
+        
+        return PaginatedArtifacts(
+            items=artifacts,
+            total=total,
+            nextCursor=str(offset + limit) if offset + limit < total else None,
+            hasMore=offset + limit < total,
+        )
 
     @app.get(
         "/topics/{topic_name}/timeline",
@@ -1518,6 +2108,236 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
             timeline.append(timeline_point)
         
         return timeline
+
+    @app.get(
+        "/topics/{topic_id}/evolution",
+        tags=["discovery"],
+        summary="Get topic evolution events",
+        description="Get evolution events (merges, splits, emergence, decline) for a specific topic.",
+        response_model=List[TopicEvolutionEvent],
+    )
+    def get_topic_evolution(
+        topic_id: int,
+        event_type: Optional[str] = Query(None, description="Filter by event type: merge, split, emerge, decline"),
+        limit: int = Query(50, ge=1, le=200, description="Maximum number of events to return"),
+        settings: Settings = Depends(get_settings_dep),
+    ) -> List[TopicEvolutionEvent]:
+        """Get evolution events for a topic."""
+        from .db import get_topic_evolution_events
+        
+        events = get_topic_evolution_events(
+            settings.app.database_path,
+            topic_id=topic_id,
+            event_type=event_type,
+            limit=limit
+        )
+        
+        # Convert to TopicEvolutionEvent models
+        evolution_events = []
+        for event in events:
+            evolution_events.append(TopicEvolutionEvent(
+                id=event["id"],
+                topicId=event["topic_id"],
+                eventType=event["event_type"],
+                relatedTopicIds=json.loads(event.get("related_topic_ids", "[]")),
+                eventStrength=event.get("event_strength"),
+                eventDate=event["event_date"],
+                description=event.get("description"),
+                createdAt=event.get("created_at"),
+            ))
+        
+        return evolution_events
+
+    @app.get(
+        "/topics/{topic_id}/stats",
+        tags=["discovery"],
+        summary="Get topic statistics",
+        description="Get comprehensive statistics for a topic including emergence metrics and growth predictions.",
+        response_model=TopicStats,
+    )
+    def get_topic_stats(
+        topic_id: int,
+        window_days: int = Query(30, ge=7, le=365, description="Analysis window in days"),
+        settings: Settings = Depends(get_settings_dep),
+    ) -> TopicStats:
+        """Get comprehensive statistics for a topic."""
+        from .topic_evolution import compute_topic_emergence, predict_topic_growth, find_related_topics
+        from .db import get_topic_by_id, get_topic_artifact_history
+        import numpy as np
+        
+        # Get basic topic info
+        topic = get_topic_by_id(settings.app.database_path, topic_id)
+        if not topic:
+            raise HTTPException(status_code=404, detail="Topic not found")
+        
+        # Get timeline data
+        timeline = get_topic_timeline(
+            settings.app.database_path,
+            topic_name=topic["name"],
+            days=window_days
+        )
+        
+        # Compute emergence metrics
+        emergence_metrics = compute_topic_emergence(topic_id, settings.app.database_path, window_days)
+        emergence_model = TopicEmergenceMetrics(
+            growthRate=emergence_metrics["growth_rate"],
+            acceleration=emergence_metrics["acceleration"],
+            velocity=emergence_metrics["velocity"],
+            emergenceScore=emergence_metrics["emergence_score"],
+        )
+        
+        # Predict growth
+        growth_prediction = predict_topic_growth(topic_id, settings.app.database_path, days_to_predict=14)
+        growth_model = TopicGrowthPrediction(
+            dailyGrowthRate=growth_prediction["daily_growth_rate"],
+            predictedCounts=growth_prediction["predicted_counts"],
+            confidence=growth_prediction["confidence"],
+            trend=growth_prediction["trend"],
+            predictionWindowDays=growth_prediction["prediction_window_days"],
+        )
+        
+        # Get related topics
+        related = find_related_topics(topic_id, settings.app.database_path, limit=20)
+        related_topics = []
+        for rel in related:
+            related_topics.append(RelatedTopic(
+                id=rel["id"],
+                name=rel["name"],
+                taxonomyPath=rel.get("taxonomy_path"),
+                similarity=rel["similarity"],
+            ))
+        
+        # Get evolution events
+        from .db import get_topic_evolution_events
+        recent_events = get_topic_evolution_events(
+            settings.app.database_path,
+            topic_id=topic_id,
+            limit=10
+        )
+        
+        # Convert timeline to TopicTimeline models
+        timeline_models = []
+        for t in timeline:
+            timeline_models.append(TopicTimeline(
+                date=t["date"],
+                artifactCount=t["artifact_count"],
+                avgDiscoveryScore=t.get("avg_discovery_score"),
+            ))
+        
+        # Convert evolution events
+        evolution_events = []
+        for event in recent_events:
+            evolution_events.append(TopicEvolutionEvent(
+                id=event["id"],
+                topicId=event["topic_id"],
+                eventType=event["event_type"],
+                relatedTopicIds=json.loads(event.get("related_topic_ids", "[]")),
+                eventStrength=event.get("event_strength"),
+                eventDate=event["event_date"],
+                description=event.get("description"),
+                createdAt=event.get("created_at"),
+            ))
+        
+        # Get artifact statistics
+        history = get_topic_artifact_history(topic_id, settings.app.database_path, window_days)
+        total_artifacts = sum(h["artifact_count"] for h in history)
+        avg_score = float(np.mean([h.get("avg_discovery_score", 0) or 0 for h in history])) if history else 0.0
+        
+        return TopicStats(
+            topicId=topic_id,
+            name=topic["name"],
+            taxonomyPath=topic.get("taxonomy_path"),
+            totalArtifacts=total_artifacts,
+            avgDiscoveryScore=avg_score,
+            emergenceMetrics=emergence_model,
+            growthPrediction=growth_model,
+            relatedTopics=related_topics,
+            recentEvents=evolution_events,
+            timeline=timeline_models,
+        )
+
+    @app.get(
+        "/topics/merges",
+        tags=["discovery"],
+        summary="Get topic merge candidates",
+        description="Get detected topic merge candidates with similarity and overlap calculations.",
+        response_model=List[TopicMergeCandidate],
+    )
+    def get_topic_merge_candidates(
+        window_days: int = Query(30, ge=7, le=365, description="Analysis window in days"),
+        similarity_threshold: float = Query(0.85, ge=0.5, le=1.0, description="Minimum similarity threshold"),
+        settings: Settings = Depends(get_settings_dep),
+    ) -> List[TopicMergeCandidate]:
+        """Get detected topic merge candidates."""
+        from .topic_evolution import detect_topic_merges
+        
+        merge_candidates = detect_topic_merges(
+            settings.app.database_path,
+            window_days=window_days,
+            similarity_threshold=similarity_threshold
+        )
+        
+        # Convert to TopicMergeCandidate models
+        candidates = []
+        for candidate in merge_candidates:
+            candidates.append(TopicMergeCandidate(
+                primaryTopic=Topic(
+                    id=candidate["primary_topic"]["id"],
+                    name=candidate["primary_topic"]["name"],
+                    taxonomyPath=candidate["primary_topic"].get("taxonomy_path"),
+                ),
+                secondaryTopic=Topic(
+                    id=candidate["secondary_topic"]["id"],
+                    name=candidate["secondary_topic"]["name"],
+                    taxonomyPath=candidate["secondary_topic"].get("taxonomy_path"),
+                ),
+                currentSimilarity=candidate["current_similarity"],
+                overlapTrend=candidate["overlap_trend"],
+                confidence=candidate["confidence"],
+                eventType=candidate["event_type"],
+                timestamp=candidate["timestamp"],
+            ))
+        
+        return candidates
+
+    @app.get(
+        "/topics/splits",
+        tags=["discovery"],
+        summary="Get topic split candidates",
+        description="Get detected topic split candidates with coherence analysis.",
+        response_model=List[TopicSplitDetection],
+    )
+    def get_topic_split_candidates(
+        window_days: int = Query(30, ge=7, le=365, description="Analysis window in days"),
+        diversity_threshold: float = Query(0.70, ge=0.5, le=1.0, description="Diversity threshold for split detection"),
+        settings: Settings = Depends(get_settings_dep),
+    ) -> List[TopicSplitDetection]:
+        """Get detected topic split candidates."""
+        from .topic_evolution import detect_topic_splits
+        
+        split_candidates = detect_topic_splits(
+            settings.app.database_path,
+            window_days=window_days,
+            diversity_threshold=diversity_threshold
+        )
+        
+        # Convert to TopicSplitDetection models
+        candidates = []
+        for candidate in split_candidates:
+            candidates.append(TopicSplitDetection(
+                primaryTopic=Topic(
+                    id=candidate["primary_topic"]["id"],
+                    name=candidate["primary_topic"]["name"],
+                    taxonomyPath=candidate["primary_topic"].get("taxonomy_path"),
+                ),
+                coherenceDrop=candidate["coherence_drop"],
+                subClusters=candidate.get("sub_clusters"),
+                confidence=candidate["confidence"],
+                eventType=candidate["event_type"],
+                timestamp=candidate["timestamp"],
+            ))
+        
+        return candidates
 
     @app.get(
         "/artifacts/{artifact_id}/relationships",
@@ -1605,7 +2425,7 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
         enable_semantic: bool = Query(True, description="Enable semantic similarity detection"),
         semantic_threshold: float = Query(0.80, description="Minimum similarity threshold"),
         settings: Settings = Depends(get_settings_dep),
-        api_key: str = Depends(validate_api_key),
+        _: None = Depends(require_api_key),
     ) -> Dict[str, Any]:
         """Run relationship detection."""
         from .relationship_detection import run_relationship_detection
@@ -1629,7 +2449,7 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
     async def refresh_discoveries(
         refresh_type: str = Query("discovery", description="Type of refresh: discovery or all"),
         settings: Settings = Depends(get_settings_dep),
-        api_key: str = Depends(validate_api_key),
+        _: None = Depends(require_api_key),
     ) -> Dict[str, Any]:
         """Run discovery pipeline refresh."""
         from .discovery_scoring import run_discovery_scoring
@@ -1798,7 +2618,7 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
     def create_experiment_endpoint(
         request: ExperimentRequest,
         settings: Settings = Depends(get_settings_dep),
-        api_key: str = Depends(validate_api_key),
+        _: None = Depends(require_api_key),
     ) -> Dict[str, Any]:
         """Create a new experiment."""
         from .experiment import ExperimentConfig, create_experiment
@@ -1817,10 +2637,22 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
                 config,
                 request.baseline_id,
             )
+            
+            # Build response matching TypeScript types
             return {
-                "status": "success",
-                "experimentId": experiment_id,
+                "id": experiment_id,
                 "name": request.name,
+                "description": request.description,
+                "config": {
+                    "scoringWeights": request.scoring_weights,
+                    "sourceFilters": None,
+                    "minScoreThreshold": request.min_score_threshold,
+                    "lookbackDays": request.lookback_days,
+                },
+                "baselineId": request.baseline_id,
+                "status": "draft",
+                "createdAt": "2025-11-14T12:00:00Z",  # Would be actual ISO timestamp
+                "updatedAt": "2025-11-14T12:00:00Z",
             }
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -1945,7 +2777,7 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
         annotator: Optional[str] = Query(None, description="Annotator name"),
         notes: Optional[str] = Query(None, description="Notes about the label"),
         settings: Settings = Depends(get_settings_dep),
-        api_key: str = Depends(validate_api_key),
+        _: None = Depends(require_api_key),
     ) -> Dict[str, Any]:
         """Add or update artifact label."""
         from .experiment import add_discovery_label
@@ -1993,7 +2825,7 @@ def create_app(settings_path: Optional[str] = None) -> FastAPI:
     )
     def invalidate_cache_endpoint(
         pattern: str = Query("*", description="Cache key pattern to invalidate"),
-        api_key: str = Depends(validate_api_key),
+        _: None = Depends(require_api_key),
     ) -> Dict[str, Any]:
         """Invalidate cache entries."""
         count = invalidate_cache(pattern)

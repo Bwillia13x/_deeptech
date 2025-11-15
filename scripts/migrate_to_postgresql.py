@@ -27,7 +27,7 @@ import argparse
 import json
 import sqlite3
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
@@ -124,6 +124,106 @@ class PostgreSQLMigrator:
         self.pg_conn: Optional[psycopg2.extensions.connection] = None
         self.pg_cursor: Optional[psycopg2.extensions.cursor] = None
     
+    @staticmethod
+    def _normalize_timestamp(value: Any) -> Optional[str]:
+        """Ensure timestamps end with timezone information."""
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            ts = value.astimezone(timezone.utc) if value.tzinfo else value
+            return ts.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        if isinstance(value, str):
+            val = value.strip()
+            if not val:
+                return None
+            if val.endswith('Z') or '+' in val:
+                return val
+            return val + 'Z'
+        return str(value)
+
+    @staticmethod
+    def _safe_json(value: Any) -> Optional[Dict[str, Any]]:
+        """Return a dictionary parsed from JSON, if possible."""
+        if not value:
+            return None
+        if isinstance(value, dict):
+            return dict(value)
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return {"raw": value}
+        return value  # Already JSON-serializable (list, etc.)
+
+    def _transform_artifacts(self, row: sqlite3.Row) -> Tuple[List[str], List[Any]]:
+        summary_source = row["text"] or row["title"]
+        summary = summary_source[:360] if summary_source else None
+        metadata = self._safe_json(row["raw_json"])
+        extras: Dict[str, Any] = {}
+        if row["type"]:
+            extras["legacy_type"] = row["type"]
+        if row["author_entity_ids"]:
+            extras["author_entity_ids"] = row["author_entity_ids"]
+        if extras:
+            metadata = (metadata or {})
+            metadata.update(extras)
+        metadata_json = json.dumps(metadata) if metadata else None
+
+        columns = [
+            "id",
+            "source",
+            "external_id",
+            "title",
+            "url",
+            "summary",
+            "content",
+            "published_at",
+            "metadata_json",
+            "created_at",
+            "updated_at",
+        ]
+        values = [
+            row["id"],
+            row["source"],
+            row["source_id"],
+            row["title"],
+            row["url"],
+            summary,
+            row["text"],
+            self._normalize_timestamp(row["published_at"]),
+            metadata_json,
+            self._normalize_timestamp(row["created_at"]),
+            self._normalize_timestamp(row["updated_at"]),
+        ]
+        return columns, values
+
+    def _transform_topics(self, row: sqlite3.Row) -> Tuple[List[str], List[Any]]:
+        description = row["description"] or ""
+        if row["taxonomy_path"]:
+            taxonomy_note = f"Taxonomy: {row['taxonomy_path']}"
+            description = (description + "\n\n" + taxonomy_note).strip()
+        created_at = self._normalize_timestamp(row["created_at"])
+        columns = ["id", "name", "description", "created_at", "updated_at"]
+        values = [
+            row["id"],
+            row["name"],
+            description or None,
+            created_at,
+            created_at,
+        ]
+        return columns, values
+
+    def _transform_artifact_topics(self, row: sqlite3.Row) -> Tuple[List[str], List[Any]]:
+        created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        columns = ["artifact_id", "topic_id", "confidence", "created_at"]
+        values = [
+            row["artifact_id"],
+            row["topic_id"],
+            row["confidence"],
+            created_at,
+        ]
+        return columns, values
+
     def connect(self):
         """Establish database connections."""
         print(f"Connecting to SQLite: {self.sqlite_path}")
@@ -169,6 +269,13 @@ class PostgreSQLMigrator:
         Transform a SQLite row for PostgreSQL.
         Returns (column_names, values).
         """
+        if table == "artifacts":
+            return self._transform_artifacts(row)
+        if table == "topics":
+            return self._transform_topics(row)
+        if table == "artifact_topics":
+            return self._transform_artifact_topics(row)
+
         columns = row.keys()
         values = []
         
@@ -190,12 +297,7 @@ class PostgreSQLMigrator:
             elif col in ["created_at", "updated_at", "published_at", "notified_at",
                         "started_at", "completed_at", "calculated_at", "last_activity_date"]:
                 if val:
-                    # SQLite stores as text, ensure it's in ISO format
-                    if isinstance(val, str):
-                        # Add timezone if missing
-                        if not val.endswith('Z') and '+' not in val:
-                            val = val + 'Z'
-                    values.append(val)
+                    values.append(self._normalize_timestamp(val))
                 else:
                     values.append(None)
             
@@ -211,7 +313,7 @@ class PostgreSQLMigrator:
         """
         if not self.sqlite_conn:
             raise RuntimeError("SQLite connection not established")
-        if not self.pg_conn:
+        if not self.pg_conn and not self.dry_run:
             raise RuntimeError("PostgreSQL connection not established")
             
         if not self.table_exists(table_name):

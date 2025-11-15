@@ -98,7 +98,7 @@ This document is now the single source of truth for what has been implemented, w
 
 ### 6.1 Production Deployment & Infrastructure
 
-**Status**: Not Started  
+**Status**: In Progress — staging + monitoring automation landed Nov 13 2025  
 **Priority**: Critical  
 **Dependencies**: Phase Two Complete ✅
 
@@ -121,9 +121,20 @@ This document is now the single source of truth for what has been implemented, w
 - Database backup/restore automation (daily snapshots, 30-day retention)
 - Log aggregation setup (CloudWatch, Datadog, or ELK stack)
 
+**Implementation Progress (Nov 13 2025)**:
+
+- `make staging-up` / `make staging-down` now wrap `scripts/deploy-monitoring-docker.sh` and `docker-compose.monitoring.yml` so spinning up the API + Prometheus/Grafana/Alertmanager stack in staging is one command.
+- `make monitoring-validate` fronts `scripts/validate-monitoring.sh`, linting Prometheus alerts, Grafana dashboards, and Kubernetes manifests before deployments.
+- `make load-test` drives the existing `scripts/load_test.py` Locust plan headlessly (defaults: 100 users, 10 rps ramp, 5-minute run) and emits `results/load_test_report.html`, giving an auditable baseline for the 100 req/s + p95<500ms target.
+
 **Verification Commands**:
 
 ```bash
+# Bootstrap/validate staging stack locally
+make staging-up
+make monitoring-validate
+make load-test
+
 # Production health check
 curl -f https://api.signalharvester.io/health || exit 1
 
@@ -225,6 +236,13 @@ ls -lh docs/TROUBLESHOOTING.md docs/TEAM_GUIDE.md  # Both present ✅
 - PostgreSQL migration plan for production scale (>1M artifacts, analyze SQLite limits) documented in `docs/PHASE_THREE_SCALING.md`
 - Connection pooling for database (SQLAlchemy/SQLite engine configuration)
 - API response compression (gzip middleware)
+
+**Implementation Progress (Nov 13 2025)**:
+
+- Added `make migrate-postgres-dry-run`, `make migrate-postgres`, and `make validate-postgres` helpers to wrap the existing migration + validation scripts with standardized `PG_URL`/`SQLITE_DB` configuration, so data-copy drills and schema verification can move into CI/staging flows without bespoke shell glue.
+- Exercised the new helpers end-to-end against a disposable PostgreSQL 15 container (`docker run postgres:15 ...`), capturing a clean dry-run, full migration of 81 legacy rows, and a passing `make validate-postgres` report (tables + row counts documented in the terminal log above).
+- Updated the PostgreSQL schema migration (`migrations/versions/20251112_0010_postgresql_schema.py`) to drop leftover SQLite-era tables before creating the optimized schema and modernized the migration tooling so artifacts/topics/relationships map cleanly into the new column layout (metadata JSON, external IDs, creation timestamps, etc.).
+- `scripts/migrate_to_postgresql.py` now handles dry-run mode without a live PG connection and performs table-specific column remapping (artifacts, topics, artifact_topics), while `scripts/validate_postgresql.py` expects the new Postgres tables instead of the deprecated SQLite-era ones.
 
 **Verification Commands**:
 
@@ -332,6 +350,8 @@ npm run preview    # Preview production build
 ---
 
 ## 8. Phase Five: Extended Data Sources (Priority 3, 1-2 weeks per source)
+
+> Detailed implementation guidance is captured in [`docs/PHASE_FIVE_SOURCE_INTEGRATIONS.md`](docs/PHASE_FIVE_SOURCE_INTEGRATIONS.md).
 
 ### 8.1 Additional Social & Community Sources
 

@@ -81,7 +81,7 @@ async def fetch_artifacts(settings: Settings) -> Dict[str, Any]:
         explicit_fields = set(getattr(sources_cfg, "model_fields_set", set()))
 
     # Import discovery clients lazily to avoid circular deps
-    from . import arxiv_client, github_client
+    from . import arxiv_client, github_client, hackernews_client, reddit_client
 
     def _get_source_attr(cfg: Any, name: str) -> Any:
         if isinstance(cfg, dict):
@@ -226,9 +226,9 @@ async def fetch_artifacts(settings: Settings) -> Dict[str, Any]:
     if _is_enabled("linkedin", linkedin_cfg, default_enabled=True):
         try:
             from . import linkedin_client
-            
+           
             linkedin_artifacts = await linkedin_client.fetch_linkedin_artifacts(settings)
-            
+           
             linkedin_inserted = 0
             for artifact in linkedin_artifacts:
                 from .db import upsert_artifact
@@ -245,12 +245,76 @@ async def fetch_artifacts(settings: Settings) -> Dict[str, Any]:
                 )
                 if artifact_id:
                     linkedin_inserted += 1
-            
+           
             stats["sources"]["linkedin"] = {"inserted": linkedin_inserted, "seen": len(linkedin_artifacts)}
             log.info("Fetch LinkedIn: seen=%d inserted=%d", len(linkedin_artifacts), linkedin_inserted)
         except Exception as e:
             log.error("Error fetching from LinkedIn: %s", e)
             stats["sources"]["linkedin"] = {"error": str(e)}
+
+    # Fetch from Reddit if enabled
+    reddit_cfg = _get_source_attr(sources_cfg, "reddit")
+    if _is_enabled("reddit", reddit_cfg, default_enabled=False):
+        try:
+            reddit_artifacts = await reddit_client.fetch_reddit_artifacts(settings)
+
+            reddit_inserted = 0
+            for artifact in reddit_artifacts:
+                from .db import upsert_artifact
+                artifact_id = upsert_artifact(
+                    db_path=app.database_path,
+                    artifact_type=artifact["type"],
+                    source="reddit",
+                    source_id=artifact["source_id"],
+                    title=artifact.get("title"),
+                    text=artifact.get("text"),
+                    url=artifact.get("url"),
+                    published_at=artifact.get("published_at"),
+                    raw_json=artifact.get("raw_json"),
+                )
+                if artifact_id:
+                    reddit_inserted += 1
+
+            stats["sources"]["reddit"] = {
+                "inserted": reddit_inserted,
+                "seen": len(reddit_artifacts),
+            }
+            log.info("Fetch Reddit: seen=%d inserted=%d", len(reddit_artifacts), reddit_inserted)
+        except Exception as e:
+            log.error("Error fetching from Reddit: %s", e)
+            stats["sources"]["reddit"] = {"error": str(e)}
+
+    # Fetch from Hacker News if enabled
+    hn_cfg = _get_source_attr(sources_cfg, "hacker_news")
+    if _is_enabled("hacker_news", hn_cfg, default_enabled=False):
+        try:
+            hn_artifacts = await hackernews_client.fetch_hackernews_artifacts(settings)
+
+            hn_inserted = 0
+            for artifact in hn_artifacts:
+                from .db import upsert_artifact
+                artifact_id = upsert_artifact(
+                    db_path=app.database_path,
+                    artifact_type=artifact["type"],
+                    source="hackernews",
+                    source_id=artifact["source_id"],
+                    title=artifact.get("title"),
+                    text=artifact.get("text"),
+                    url=artifact.get("url"),
+                    published_at=artifact.get("published_at"),
+                    raw_json=artifact.get("raw_json"),
+                )
+                if artifact_id:
+                    hn_inserted += 1
+
+            stats["sources"]["hacker_news"] = {
+                "inserted": hn_inserted,
+                "seen": len(hn_artifacts),
+            }
+            log.info("Fetch Hacker News: seen=%d inserted=%d", len(hn_artifacts), hn_inserted)
+        except Exception as e:
+            log.error("Error fetching from Hacker News: %s", e)
+            stats["sources"]["hacker_news"] = {"error": str(e)}
 
     return stats
 

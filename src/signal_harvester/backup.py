@@ -47,7 +47,7 @@ from .logger import get_logger
 
 # Import Prometheus metrics
 try:
-    from .prometheus_metrics import (
+    from .metrics import (
         backup_duration_seconds,
         backup_errors_total,
         backup_newest_age_seconds,
@@ -76,6 +76,7 @@ try:
 except ImportError:
     HAS_BOTO3 = False
     log.debug("boto3 not installed, S3 upload disabled")
+    boto3 = None
 
 try:
     from google.cloud import storage as gcs_storage
@@ -138,6 +139,7 @@ class BackupMetadata:
     compression: CompressionType
     size_bytes: int
     checksum: str  # SHA256
+    description: Optional[str] = None
     wal_checksum: Optional[str] = None
     cloud_url: Optional[str] = None
     cloud_provider: Optional[CloudProvider] = None
@@ -145,6 +147,10 @@ class BackupMetadata:
     verified: bool = False
     verification_timestamp: Optional[datetime] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __fspath__(self) -> str:
+        """Allow BackupMetadata to be used as a path."""
+        return self.backup_path
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -163,6 +169,7 @@ class BackupMetadata:
             "retention_policy": self.retention_policy.value if self.retention_policy else None,
             "verified": self.verified,
             "verification_timestamp": self.verification_timestamp.isoformat() if self.verification_timestamp else None,
+            "description": self.description,
             "metadata": self.metadata,
         }
 
@@ -184,6 +191,7 @@ class BackupMetadata:
             retention_policy=RetentionPolicy(data["retention_policy"]) if data.get("retention_policy") else None,
             verified=data.get("verified", False),
             verification_timestamp=datetime.fromisoformat(data["verification_timestamp"]) if data.get("verification_timestamp") else None,
+            description=data.get("description"),
             metadata=data.get("metadata", {}),
         )
 
@@ -207,6 +215,7 @@ class BackupManager:
         backup_dir: Union[str, Path] = "backups",
         compression: CompressionType = CompressionType.GZIP,
         retention_days: int = 30,
+        lock_wait_seconds: float = 5.0,
     ):
         """
         Initialize backup manager.
@@ -216,11 +225,13 @@ class BackupManager:
             backup_dir: Directory to store backups
             compression: Default compression type
             retention_days: Default retention period in days
+            lock_wait_seconds: Max seconds to wait for a database lock before failing
         """
         self.db_path = Path(db_path)
         self.backup_dir = Path(backup_dir)
         self.compression = compression
         self.retention_days = retention_days
+        self.lock_wait_seconds = max(0.0, lock_wait_seconds)
         
         # Create backup directory if it doesn't exist
         self.backup_dir.mkdir(parents=True, exist_ok=True)
@@ -243,14 +254,27 @@ class BackupManager:
         else:
             self._metadata_cache = []
 
-    def _save_metadata(self) -> None:
+    def _save_metadata(self, metadata: Optional[BackupMetadata] = None) -> None:
         """Save backup metadata to file."""
+        if metadata:
+            for idx, item in enumerate(self._metadata_cache):
+                if item.backup_id == metadata.backup_id:
+                    self._metadata_cache[idx] = metadata
+                    break
+            else:
+                self._metadata_cache.append(metadata)
+
         with open(self.metadata_file, "w") as f:
             json.dump([item.to_dict() for item in self._metadata_cache], f, indent=2)
 
+        if metadata:
+            metadata_path = self.backup_dir / f"{metadata.backup_id}.json"
+            with open(metadata_path, "w") as meta_file:
+                json.dump(metadata.to_dict(), meta_file, indent=2)
+
     def _generate_backup_id(self) -> str:
         """Generate unique backup ID."""
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
         return f"backup_{timestamp}"
 
     def _calculate_checksum(self, file_path: Path) -> str:
@@ -339,6 +363,8 @@ class BackupManager:
         backup_type: BackupType = BackupType.FULL,
         compression: Optional[CompressionType] = None,
         retention_policy: Optional[RetentionPolicy] = None,
+        description: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> BackupMetadata:
         """
         Create a database backup.
@@ -390,7 +416,10 @@ class BackupManager:
             size_bytes = backup_path.stat().st_size
             
             # Create metadata
-            metadata = BackupMetadata(
+            custom_metadata = dict(metadata) if metadata else {}
+            meta_description = description or custom_metadata.get("description")
+
+            backup_metadata = BackupMetadata(
                 backup_id=backup_id,
                 backup_type=backup_type,
                 timestamp=timestamp,
@@ -400,11 +429,13 @@ class BackupManager:
                 size_bytes=size_bytes,
                 checksum=checksum,
                 retention_policy=retention_policy,
+                description=meta_description,
+                metadata=custom_metadata,
             )
-            
+
             # Save metadata
-            self._metadata_cache.append(metadata)
-            self._save_metadata()
+            self._metadata_cache.append(backup_metadata)
+            self._save_metadata(backup_metadata)
             
             log.info(f"Backup created: {backup_path} ({size_bytes / 1024 / 1024:.2f} MB)")
             
@@ -422,7 +453,7 @@ class BackupManager:
                 backup_total_count.labels(backup_type=backup_type.value).inc()
                 self._update_backup_stats()
             
-            return metadata
+            return backup_metadata
             
         except Exception as e:
             # Track failure metrics
@@ -431,6 +462,32 @@ class BackupManager:
                 backup_errors_total.labels(backup_type=backup_type.value, error_type="creation").inc()
             raise
 
+    def _wait_for_database_unlock(self, source: Path) -> None:
+        """Block until the database is unlocked or the configured timeout expires."""
+        start_time = time.monotonic()
+        while True:
+            try:
+                with sqlite3.connect(str(source), timeout=0) as probe_connection:
+                    probe_connection.execute("BEGIN IMMEDIATE")
+                    probe_connection.rollback()
+                return
+            except sqlite3.OperationalError as exc:
+                message = str(exc).lower()
+                if "locked" in message or "busy" in message:
+                    elapsed = time.monotonic() - start_time
+                    if elapsed >= self.lock_wait_seconds:
+                        log.error(
+                            "Timed out waiting for database lock before backup after %.2f seconds",
+                            elapsed,
+                        )
+                        raise RuntimeError("database locked during backup") from exc
+
+                    sleep_time = min(0.1, max(0.0, self.lock_wait_seconds - elapsed))
+                    if sleep_time:
+                        time.sleep(sleep_time)
+                    continue
+                raise
+
     def _backup_database(self, source: Path, dest: Path) -> None:
         """
         Backup database using SQLite backup API.
@@ -438,12 +495,39 @@ class BackupManager:
         This is the recommended way to backup SQLite databases as it handles
         concurrent writes and ensures consistency.
         """
+        self._wait_for_database_unlock(source)
         source_conn = sqlite3.connect(str(source))
         dest_conn = sqlite3.connect(str(dest))
-        
+        busy_timeout_ms = max(0, int(self.lock_wait_seconds * 1000))
+        if busy_timeout_ms:
+            source_conn.execute(f"PRAGMA busy_timeout = {busy_timeout_ms}")
+            dest_conn.execute(f"PRAGMA busy_timeout = {busy_timeout_ms}")
+        start_time = time.monotonic()
         try:
-            with dest_conn:
-                source_conn.backup(dest_conn)
+            while True:
+                try:
+                    with dest_conn:
+                        source_conn.backup(dest_conn)
+                    return
+                except sqlite3.OperationalError as e:
+                    message = str(e).lower()
+                    if "locked" in message or "busy" in message:
+                        elapsed = time.monotonic() - start_time
+                        if elapsed >= self.lock_wait_seconds:
+                            log.error(
+                                "Timed out waiting for database lock after %.2f seconds",
+                                elapsed,
+                            )
+                            raise RuntimeError("database locked during backup") from e
+
+                        sleep_time = min(0.1, max(0.0, self.lock_wait_seconds - elapsed))
+                        if sleep_time:
+                            time.sleep(sleep_time)
+                        continue
+
+                    log.warning(f"SQLite backup failed ({e}); falling back to file copy")
+                    shutil.copy2(source, dest)
+                    return
         finally:
             source_conn.close()
             dest_conn.close()
@@ -462,7 +546,7 @@ class BackupManager:
             # Create empty file
             dest.touch()
 
-    def verify_backup(self, backup_metadata: BackupMetadata) -> bool:
+    def verify_backup(self, backup_metadata: BackupMetadata | str | Path) -> bool:
         """
         Verify backup integrity.
         
@@ -472,19 +556,46 @@ class BackupManager:
         Returns:
             True if backup is valid, False otherwise
         """
-        backup_path = Path(backup_metadata.backup_path)
+        metadata_obj: BackupMetadata | None
+
+        if isinstance(backup_metadata, (str, Path)):
+            backup_path = Path(backup_metadata)
+            metadata_obj = next(
+                (m for m in self._metadata_cache if Path(m.backup_path) == backup_path),
+                None,
+            )
+            if metadata_obj is None:
+                log.error(f"No metadata found for backup path: {backup_path}")
+                return False
+        else:
+            metadata_obj = backup_metadata
+            backup_path = Path(metadata_obj.backup_path)
         
         if not backup_path.exists():
             log.error(f"Backup file not found: {backup_path}")
             if HAS_PROMETHEUS:
+                    backup_verifications_total.labels(status="failed").inc()
+                    backup_errors_total.labels(
+                        backup_type=metadata_obj.backup_type.value,
+                        error_type="verification"
+                    ).inc()
+            return False
+        
+        log.info(f"Verifying backup: {metadata_obj.backup_id}")
+        current_size = backup_path.stat().st_size
+        if current_size != metadata_obj.size_bytes:
+            log.error(
+                "Backup size mismatch: expected %d bytes, got %d bytes",
+                metadata_obj.size_bytes,
+                current_size,
+            )
+            if HAS_PROMETHEUS:
                 backup_verifications_total.labels(status="failed").inc()
                 backup_errors_total.labels(
-                    backup_type=backup_metadata.backup_type.value,
+                    backup_type=metadata_obj.backup_type.value,
                     error_type="verification"
                 ).inc()
             return False
-        
-        log.info(f"Verifying backup: {backup_metadata.backup_id}")
         
         # Decompress to temp file
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
@@ -495,12 +606,12 @@ class BackupManager:
             
             # Verify checksum
             checksum = self._calculate_checksum(tmp_path)
-            if checksum != backup_metadata.checksum:
-                log.error(f"Checksum mismatch: expected {backup_metadata.checksum}, got {checksum}")
+            if checksum != metadata_obj.checksum:
+                log.error(f"Checksum mismatch: expected {metadata_obj.checksum}, got {checksum}")
                 if HAS_PROMETHEUS:
                     backup_verifications_total.labels(status="failed").inc()
                     backup_errors_total.labels(
-                        backup_type=backup_metadata.backup_type.value,
+                        backup_type=metadata_obj.backup_type.value,
                         error_type="verification"
                     ).inc()
                 return False
@@ -516,7 +627,7 @@ class BackupManager:
                     if HAS_PROMETHEUS:
                         backup_verifications_total.labels(status="failed").inc()
                         backup_errors_total.labels(
-                            backup_type=backup_metadata.backup_type.value,
+                        backup_type=metadata_obj.backup_type.value,
                             error_type="verification"
                         ).inc()
                     return False
@@ -524,38 +635,47 @@ class BackupManager:
                 conn.close()
             
             # Update metadata
-            backup_metadata.verified = True
-            backup_metadata.verification_timestamp = datetime.now(timezone.utc)
+            metadata_obj.verified = True
+            metadata_obj.verification_timestamp = datetime.now(timezone.utc)
             self._save_metadata()
-            
-            log.info(f"Backup verified successfully: {backup_metadata.backup_id}")
+            log.info(f"Backup verified successfully: {metadata_obj.backup_id}")
             
             # Track success metrics
             if HAS_PROMETHEUS:
                 backup_verifications_total.labels(status="success").inc()
-            
+
             return True
-        
         except Exception as e:
             log.error(f"Backup verification failed: {e}")
             if HAS_PROMETHEUS:
                 backup_verifications_total.labels(status="failed").inc()
                 backup_errors_total.labels(
-                    backup_type=backup_metadata.backup_type.value,
+                    backup_type=metadata_obj.backup_type.value if metadata_obj else "unknown",
                     error_type="verification"
                 ).inc()
             return False
-        
         finally:
-            # Clean up temp file
-            if tmp_path.exists():
-                tmp_path.unlink()
+            tmp_path.unlink(missing_ok=True)
+
+    def verify_all_backups(self) -> list[dict[str, Any]]:
+        """Verify every known backup and return verification results."""
+        results: list[dict[str, Any]] = []
+        for metadata in list(self._metadata_cache):
+            verified = self.verify_backup(metadata)
+            results.append(
+                {
+                    "backup_id": metadata.backup_id,
+                    "verified": verified,
+                }
+            )
+        return results
 
     def restore_backup(
         self,
-        backup_metadata: Union[BackupMetadata, str],
+        backup_metadata: Union[BackupMetadata, str, Path],
         target_path: Optional[Path] = None,
         verify: bool = True,
+        output_path: Optional[Union[str, Path]] = None,
     ) -> bool:
         """
         Restore database from backup.
@@ -569,12 +689,18 @@ class BackupManager:
             True if restore successful, False otherwise
         """
         # Resolve backup_metadata to BackupMetadata object
-        metadata: BackupMetadata
-        if isinstance(backup_metadata, str):
-            backup_id = backup_metadata
-            resolved_metadata = self.get_backup(backup_id)
-            if not resolved_metadata:
-                log.error(f"Backup not found: {backup_id}")
+        if isinstance(backup_metadata, BackupMetadata):
+            metadata = backup_metadata
+        else:
+            metadata = self.get_backup(backup_metadata)
+            if metadata is None:
+                path = Path(backup_metadata)
+                metadata = next(
+                    (m for m in self._metadata_cache if Path(m.backup_path) == path),
+                    None,
+                )
+            if not metadata:
+                log.error(f"Backup not found: {backup_metadata}")
                 if HAS_PROMETHEUS:
                     backup_restores_total.labels(status="failed").inc()
                     backup_errors_total.labels(
@@ -582,12 +708,13 @@ class BackupManager:
                         error_type="restore"
                     ).inc()
                 return False
-            metadata = resolved_metadata
-        else:
-            metadata = backup_metadata
         
         backup_path = Path(metadata.backup_path)
-        target_path = target_path or self.db_path
+        restore_target: Path
+        if output_path:
+            restore_target = Path(output_path)
+        else:
+            restore_target = target_path or self.db_path
         
         if not backup_path.exists():
             log.error(f"Backup file not found: {backup_path}")
@@ -607,19 +734,41 @@ class BackupManager:
                     backup_restores_total.labels(status="failed").inc()
                 return False
         
-        log.info(f"Restoring backup {metadata.backup_id} to {target_path}")
+        log.info(f"Restoring backup {metadata.backup_id} to {restore_target}")
         
         try:
             # Create backup of current database if it exists
-            if target_path.exists():
-                backup_current = target_path.with_suffix(f".db.backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}")
-                shutil.copy2(target_path, backup_current)
+            if restore_target.exists():
+                backup_current = restore_target.with_suffix(f".db.backup_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}")
+                shutil.copy2(restore_target, backup_current)
                 log.info(f"Current database backed up to: {backup_current}")
-            
+                # Record safety backup metadata
+                safety_metadata = BackupMetadata(
+                    backup_id=self._generate_backup_id(),
+                    backup_type=BackupType.FULL,
+                    timestamp=datetime.now(timezone.utc),
+                    db_path=str(restore_target),
+                    backup_path=str(backup_current),
+                    compression=CompressionType.NONE,
+                    size_bytes=backup_current.stat().st_size,
+                    checksum=self._calculate_checksum(backup_current),
+                    description="Safety backup before restore",
+                )
+                self._metadata_cache.append(safety_metadata)
+                self._save_metadata()
+                if HAS_PROMETHEUS:
+                    backup_runs_total.labels(backup_type=BackupType.FULL.value, status="success").inc()
+                    backup_duration_seconds.labels(backup_type=BackupType.FULL.value).observe(0.0)
+                    backup_size_bytes.labels(backup_type=BackupType.FULL.value, compression=CompressionType.NONE.value).observe(
+                        float(backup_current.stat().st_size)
+                    )
+                    backup_total_count.labels(backup_type=BackupType.FULL.value).inc()
+                    self._update_backup_stats()
+
             # Decompress and restore
-            self._decompress_file(backup_path, target_path)
-            
-            log.info(f"Database restored successfully to: {target_path}")
+            self._decompress_file(backup_path, restore_target)
+
+            log.info(f"Database restored successfully to: {restore_target}")
             
             # Track success metrics
             if HAS_PROMETHEUS:
@@ -720,6 +869,10 @@ class BackupManager:
                 backup_path.unlink()
                 log.info(f"Deleted backup file: {backup_path}")
             
+            metadata_path = self.backup_dir / f"{backup_id}.json"
+            if metadata_path.exists():
+                metadata_path.unlink()
+            
             # Remove from metadata
             self._metadata_cache = [b for b in self._metadata_cache if b.backup_id != backup_id]
             self._save_metadata()
@@ -753,7 +906,7 @@ class BackupManager:
             dry_run: If True, don't actually delete, just return what would be deleted
             
         Returns:
-            List of deleted backup IDs
+            Number of deleted backup IDs
         """
         now = datetime.now(timezone.utc)
         deleted = []
@@ -772,6 +925,9 @@ class BackupManager:
         if len(daily_backups) > daily_keep:
             for backup in daily_backups[:-daily_keep]:
                 log.info(f"Deleting old daily backup: {backup.backup_id}")
+                if backup.cloud_url or backup.cloud_provider:
+                    log.info(f"Skipping cloud backup: {backup.backup_id}")
+                    continue
                 if not dry_run:
                     self.delete_backup(backup.backup_id)
                     if HAS_PROMETHEUS:
@@ -782,6 +938,9 @@ class BackupManager:
         if len(weekly_backups) > weekly_keep:
             for backup in weekly_backups[:-weekly_keep]:
                 log.info(f"Deleting old weekly backup: {backup.backup_id}")
+                if backup.cloud_url or backup.cloud_provider:
+                    log.info(f"Skipping cloud backup: {backup.backup_id}")
+                    continue
                 if not dry_run:
                     self.delete_backup(backup.backup_id)
                     if HAS_PROMETHEUS:
@@ -792,6 +951,9 @@ class BackupManager:
         if len(monthly_backups) > monthly_keep:
             for backup in monthly_backups[:-monthly_keep]:
                 log.info(f"Deleting old monthly backup: {backup.backup_id}")
+                if backup.cloud_url or backup.cloud_provider:
+                    log.info(f"Skipping cloud backup: {backup.backup_id}")
+                    continue
                 if not dry_run:
                     self.delete_backup(backup.backup_id)
                     if HAS_PROMETHEUS:
@@ -802,6 +964,9 @@ class BackupManager:
         cutoff = now - timedelta(days=self.retention_days)
         for backup in self._metadata_cache:
             if backup.timestamp < cutoff and backup.backup_id not in deleted:
+                if backup.cloud_url or backup.cloud_provider:
+                    log.info(f"Skipping expired cloud backup: {backup.backup_id}")
+                    continue
                 log.info(f"Deleting expired backup: {backup.backup_id} (older than {self.retention_days} days)")
                 if not dry_run:
                     self.delete_backup(backup.backup_id)
@@ -811,11 +976,11 @@ class BackupManager:
         if not dry_run and HAS_PROMETHEUS:
             self._update_backup_stats()
         
-        return deleted
+        return len(deleted)
 
     def upload_to_s3(
         self,
-        backup_metadata: BackupMetadata,
+        backup_metadata: Union[BackupMetadata, str, Path],
         bucket: str,
         prefix: str = "backups",
         region: str = "us-east-1",
@@ -832,23 +997,41 @@ class BackupManager:
         Returns:
             True if upload successful, False otherwise
         """
-        if not HAS_BOTO3:
+        if isinstance(backup_metadata, BackupMetadata):
+            metadata = backup_metadata
+        else:
+            metadata = self.get_backup(backup_metadata)
+            if metadata is None:
+                path = Path(backup_metadata)
+                metadata = next(
+                    (m for m in self._metadata_cache if Path(m.backup_path) == path),
+                    None,
+                )
+            if not metadata:
+                log.error(f"Backup not found: {backup_metadata}")
+                if boto3 is not None and HAS_PROMETHEUS:
+                    backup_uploads_total.labels(provider="s3", status="failed").inc()
+                    backup_errors_total.labels(
+                        backup_type="unknown",
+                        error_type="upload"
+                    ).inc()
+                return False
+        if boto3 is None:
             log.error("boto3 not installed, cannot upload to S3")
             if HAS_PROMETHEUS:
                 backup_uploads_total.labels(provider="s3", status="failed").inc()
                 backup_errors_total.labels(
-                    backup_type=backup_metadata.backup_type.value,
+                    backup_type=metadata.backup_type.value,
                     error_type="upload"
                 ).inc()
             return False
-        
-        backup_path = Path(backup_metadata.backup_path)
+        backup_path = Path(metadata.backup_path)
         if not backup_path.exists():
             log.error(f"Backup file not found: {backup_path}")
-            if HAS_PROMETHEUS:
+            if boto3 is not None and HAS_PROMETHEUS:
                 backup_uploads_total.labels(provider="s3", status="failed").inc()
                 backup_errors_total.labels(
-                    backup_type=backup_metadata.backup_type.value,
+                    backup_type=metadata.backup_type.value,
                     error_type="upload"
                 ).inc()
             return False
@@ -857,7 +1040,8 @@ class BackupManager:
         start_time = time.time()
         
         try:
-            s3_client = boto3.client("s3", region_name=region)
+            client_kwargs = {"region_name": region} if region != "us-east-1" else {}
+            s3_client = boto3.client("s3", **client_kwargs)
             
             log.info(f"Uploading {backup_path.name} to s3://{bucket}/{s3_key}")
             
@@ -867,34 +1051,34 @@ class BackupManager:
                 s3_key,
                 ExtraArgs={
                     "Metadata": {
-                        "backup_id": backup_metadata.backup_id,
-                        "checksum": backup_metadata.checksum,
-                        "timestamp": backup_metadata.timestamp.isoformat(),
+                        "backup_id": metadata.backup_id,
+                        "checksum": metadata.checksum,
+                        "timestamp": metadata.timestamp.isoformat(),
                     }
                 },
             )
             
             # Update metadata with cloud URL
-            backup_metadata.cloud_url = f"s3://{bucket}/{s3_key}"
-            backup_metadata.cloud_provider = CloudProvider.S3
-            self._save_metadata()
-            
-            log.info(f"Upload successful: {backup_metadata.cloud_url}")
+            metadata.cloud_url = f"s3://{bucket}/{s3_key}"
+            metadata.cloud_provider = CloudProvider.S3
+            self._save_metadata(metadata)
+
+            log.info(f"Upload successful: {metadata.cloud_url}")
             
             # Track success metrics
-            if HAS_PROMETHEUS:
+            if boto3 is not None and HAS_PROMETHEUS:
                 duration = time.time() - start_time
                 backup_uploads_total.labels(provider="s3", status="success").inc()
                 backup_upload_duration_seconds.labels(provider="s3").observe(duration)
             
             return True
         
-        except (ClientError, NoCredentialsError) as e:
+        except Exception as e:
             log.error(f"S3 upload failed: {e}")
             if HAS_PROMETHEUS:
                 backup_uploads_total.labels(provider="s3", status="failed").inc()
                 backup_errors_total.labels(
-                    backup_type=backup_metadata.backup_type.value,
+                    backup_type=metadata.backup_type.value,
                     error_type="upload"
                 ).inc()
             return False
@@ -903,6 +1087,7 @@ class BackupManager:
         self,
         s3_url: str,
         dest_path: Optional[Path] = None,
+        output_path: Optional[Union[str, Path]] = None,
     ) -> Optional[Path]:
         """
         Download backup from S3.
@@ -914,7 +1099,7 @@ class BackupManager:
         Returns:
             Path to downloaded file, or None if failed
         """
-        if not HAS_BOTO3:
+        if boto3 is None:
             log.error("boto3 not installed, cannot download from S3")
             return None
         
@@ -927,7 +1112,10 @@ class BackupManager:
         bucket = url_parts[0]
         key = url_parts[1]
         
-        dest_path = dest_path or self.backup_dir / Path(key).name
+        if output_path:
+            dest_path = Path(output_path)
+        else:
+            dest_path = dest_path or self.backup_dir / Path(key).name
         
         try:
             s3_client = boto3.client("s3")
@@ -938,6 +1126,38 @@ class BackupManager:
             log.info(f"Download successful: {dest_path}")
             return dest_path
         
-        except (ClientError, NoCredentialsError) as e:
+        except Exception as e:
             log.error(f"S3 download failed: {e}")
             return None
+
+    def list_s3_backups(
+        self,
+        bucket: str,
+        prefix: str = "backups",
+        max_keys: int = 1000,
+    ) -> List[Dict[str, Any]]:
+        """List objects in the S3 bucket/prefix."""
+        if boto3 is None:
+            log.error("boto3 not installed, cannot list S3 backups")
+            return []
+
+        try:
+            s3_client = boto3.client("s3")
+            response = s3_client.list_objects_v2(
+                Bucket=bucket,
+                Prefix=prefix,
+                MaxKeys=max_keys,
+            )
+            contents = response.get("Contents") or []
+
+            backups: List[Dict[str, Any]] = []
+            for item in contents:
+                backups.append({
+                    "key": item.get("Key"),
+                    "size": item.get("Size"),
+                })
+            return backups
+
+        except Exception as e:
+            log.error(f"Failed to list S3 backups: {e}")
+            return []

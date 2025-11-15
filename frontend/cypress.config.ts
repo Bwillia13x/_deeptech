@@ -7,7 +7,7 @@ export default defineConfig({
       apiUrl: "http://localhost:8000",
       apiKey: "test-api-key",
     },
-    setupNodeEvents(on, config) {
+    setupNodeEvents() {
       // Implement node event listeners here
     },
   },

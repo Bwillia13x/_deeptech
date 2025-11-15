@@ -70,8 +70,30 @@ export type SnapshotsListParams = {
 
 // Phase One: Deep Tech Discovery Types
 
-export type ArtifactType = "preprint" | "paper" | "repo" | "release" | "tweet" | "post";
-export type ArtifactSource = "arxiv" | "github" | "x" | "crossref" | "semantic";
+export type ArtifactType =
+  | "preprint"
+  | "paper"
+  | "repo"
+  | "release"
+  | "tweet"
+  | "post"
+  | "reddit_post"
+  | "story"
+  | "ask"
+  | "show"
+  | "comment"
+  | "job";
+export type ArtifactSource =
+  | "arxiv"
+  | "github"
+  | "x"
+  | "crossref"
+  | "semantic"
+  | "facebook"
+  | "linkedin"
+  | "reddit"
+  | "hackernews"
+  | "youtube";
 export type EntityType = "person" | "lab" | "org";
 
 export type Entity = {
@@ -83,6 +105,47 @@ export type Entity = {
   createdAt: string;
   updatedAt?: string;
   accounts?: Account[];
+  artifactCount?: number;
+  accountCount?: number;
+};
+
+export type SimilarityBreakdown = {
+  name: number;
+  affiliation: number;
+  domain: number;
+  accounts: number;
+};
+
+export type EntityCandidate = {
+  entity: Entity;
+  similarity: number;
+  components: SimilarityBreakdown;
+};
+
+export type EntityDecisionOption = "ignore" | "watch" | "needs_review";
+
+export type EntityMergeHistoryItem = {
+  id: number;
+  primaryEntityId: number;
+  candidateEntityId: number;
+  decision: string;
+  similarityScore?: number;
+  reviewer?: string;
+  notes?: string;
+  createdAt: string;
+  primaryName?: string;
+  candidateName?: string;
+};
+
+export type MergeEntityInput = {
+  candidateEntityId: number;
+  similarityScore?: number;
+  reviewer?: string;
+  notes?: string;
+};
+
+export type EntityDecisionInput = MergeEntityInput & {
+  decision: EntityDecisionOption;
 };
 
 export type Account = {
@@ -165,10 +228,316 @@ export type TopicTimelinePoint = {
   avgScore: number;
 };
 
+export type TopicEvolutionEvent = {
+  id: string;
+  topicId: string;
+  eventType: "emerge" | "merge" | "split" | "decline" | "growth";
+  relatedTopicIds?: string[];
+  eventStrength?: number; // 0-1 confidence score
+  eventDate: string; // ISO string
+  description?: string;
+  createdAt?: string; // ISO string
+};
+
+export type TopicMergeCandidate = {
+  primaryTopic: Topic;
+  secondaryTopic: Topic;
+  currentSimilarity: number;
+  overlapTrend: number;
+  confidence: number;
+  eventType: "merge";
+  timestamp: string; // ISO string
+};
+
+export type TopicSplitDetection = {
+  primaryTopic: Topic;
+  coherenceDrop: number;
+  subClusters?: Array<{
+    artifacts: any[];
+    size: number;
+  }>;
+  confidence: number;
+  eventType: "split";
+  timestamp: string; // ISO string
+};
+
+export type TopicEmergenceMetrics = {
+  growthRate: number;
+  acceleration: number;
+  velocity: number;
+  emergenceScore: number; // 0-100 composite score
+};
+
+export type TopicGrowthPrediction = {
+  dailyGrowthRate: number;
+  predictedCounts: number[];
+  confidence: number;
+  trend: "rapidly_emerging" | "emerging" | "stable" | "declining" | "insufficient_data";
+  predictionWindowDays: number;
+};
+
+export type RelatedTopic = {
+  id: string;
+  name: string;
+  taxonomyPath?: string;
+  similarity: number;
+};
+
+export type TopicStats = {
+  topicId: string;
+  name: string;
+  taxonomyPath?: string;
+  totalArtifacts: number;
+  avgDiscoveryScore: number;
+  emergenceMetrics?: TopicEmergenceMetrics;
+  growthPrediction?: TopicGrowthPrediction;
+  relatedTopics?: RelatedTopic[];
+  recentEvents?: TopicEvolutionEvent[];
+  timeline?: TopicTimelinePoint[];
+};
+
 export type ApiErrorData = {
   message?: string;
   code?: string;
   details?: unknown;
+};
+
+export type EntityStats = {
+  entityId: number;
+  artifactCount: number;
+  avgDiscoveryScore: number;
+  totalImpact: number;
+  hIndexProxy: number;
+  activeDays: number;
+  collaborationCount: number;
+  topTopics: Array<{
+    name: string;
+    count: number;
+    avgScore: number;
+  }>;
+  sourceBreakdown: Array<{
+    source: string;
+    count: number;
+    avgScore: number;
+  }>;
+  activityTimeline: Array<{
+    date: string;
+    count: number;
+  }>;
+};
+
+// Cross-Source Corroboration Types
+
+export type RelationshipType = "cite" | "reference" | "discuss" | "implement" | "mention" | "related";
+
+export type RelationshipDirection = "incoming" | "outgoing" | "both";
+
+export type ArtifactRelationship = {
+  id: string;
+  sourceArtifactId: number;
+  targetArtifactId: number;
+  sourceTitle: string;
+  sourceType: string;
+  sourceSource: string;
+  targetTitle: string;
+  targetType: string;
+  targetSource: string;
+  relationshipType: RelationshipType;
+  confidence: number; // 0.0 to 1.0
+  detectionMethod: string;
+  createdAt: string; // ISO string
+  metadata?: {
+    arxivId?: string;
+    githubRepo?: string;
+    similarityScore?: number;
+    [key: string]: any;
+  };
+};
+
+export type PaginationParams = {
+  page?: number;
+  pageSize?: number;
+};
+
+export type GetRelationshipsParams = PaginationParams & {
+  direction?: RelationshipDirection;
+  relationshipType?: RelationshipType;
+  minConfidence?: number;
+};
+
+export type GetRelationshipsResponse = {
+  artifactId: number;
+  count: number;
+  relationships: ArtifactRelationship[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  };
+};
+
+export type CitationGraphNode = {
+  id: number;
+  title: string;
+  source: string;
+  type: string;
+  discoveryScore?: number;
+};
+
+export type CitationGraphEdge = {
+  source: number;
+  target: number;
+  relationshipType: RelationshipType;
+  confidence: number;
+  detectionMethod: string;
+};
+
+export type CitationGraphResponse = {
+  rootArtifactId: number;
+  depth: number;
+  minConfidence: number;
+  nodes: CitationGraphNode[];
+  edges: CitationGraphEdge[];
+  nodeCount: number;
+  edgeCount: number;
+};
+
+export type RelationshipStats = {
+  totalRelationships: number;
+  byType: Record<RelationshipType, number>;
+  byMethod: Record<string, number>;
+  averageConfidence: number;
+  artifactsWithRelationships: number;
+  lastUpdated: string; // ISO string
+};
+
+export type RelationshipDetectionParams = {
+  artifactId?: number;
+  enableSemantic?: boolean;
+  semanticThreshold?: number;
+};
+
+export type RelationshipDetectionStats = {
+  processed: number;
+  relationshipsCreated: number;
+  byType: Record<string, number>;
+  byMethod: Record<string, number>;
+};
+
+// Experiments & A/B Testing Types
+
+export type ExperimentStatus = "draft" | "running" | "completed" | "failed";
+
+export type Experiment = {
+  id: string;
+  name: string;
+  description?: string;
+  config: {
+    scoringWeights: Record<string, number>;
+    sourceFilters?: string[];
+    minScoreThreshold?: number;
+    lookbackDays?: number;
+  };
+  baselineId?: string;
+  status: ExperimentStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ExperimentRun = {
+  id: string;
+  experimentId: string;
+  artifactCount: number;
+  truePositives: number;
+  falsePositives: number;
+  trueNegatives: number;
+  falseNegatives: number;
+  precision: number;
+  recall: number;
+  f1Score: number;
+  accuracy: number;
+  startedAt: string;
+  completedAt: string;
+  status: "completed" | "failed" | "running";
+  metadata?: Record<string, any>;
+};
+
+export type ExperimentComparison = {
+  experimentA: {
+    id: string;
+    precision: number;
+    recall: number;
+    f1Score: number;
+    accuracy: number;
+    artifactCount: number;
+  };
+  experimentB: {
+    id: string;
+    precision: number;
+    recall: number;
+    f1Score: number;
+    accuracy: number;
+    artifactCount: number;
+  };
+  deltas: {
+    precision: number;
+    recall: number;
+    f1Score: number;
+    accuracy: number;
+  };
+  winner: "experimentA" | "experimentB" | "tie";
+};
+
+export type DiscoveryLabel = {
+  id: string;
+  artifactId: string;
+  label: string; // 'true_positive', 'false_positive', 'true_negative', 'false_negative', 'relevant', 'irrelevant'
+  confidence: number; // 0.0 to 1.0
+  annotator?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+  artifactTitle?: string;
+  artifactSource?: string;
+};
+
+export type LabelDistribution = {
+  truePositive: number;
+  falsePositive: number;
+  trueNegative: number;
+  falseNegative: number;
+  relevant: number;
+  irrelevant: number;
+  total: number;
+};
+
+export type CreateExperimentInput = {
+  name: string;
+  description?: string;
+  config: {
+    scoringWeights: Record<string, number>;
+    sourceFilters?: string[];
+    minScoreThreshold?: number;
+    lookbackDays?: number;
+  };
+  baselineId?: string;
+};
+
+export type AddLabelInput = {
+  label: string;
+  confidence?: number;
+  annotator?: string;
+  notes?: string;
+};
+
+export type PaginatedExperiments = {
+  experiments: Experiment[];
+  count: number;
+};
+
+export type PaginatedLabels = {
+  labels: DiscoveryLabel[];
+  count: number;
 };
 
 export class ApiError extends Error {

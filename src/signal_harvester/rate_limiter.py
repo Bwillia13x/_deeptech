@@ -277,7 +277,13 @@ class DistributedRateLimiter:
         if config is None:
             # Load from settings
             app_config = get_config()
-            config = RateLimitConfig()
+            config = RateLimitConfig(
+                redis_enabled=app_config.app.redis.enabled,
+                redis_host=app_config.app.redis.host,
+                redis_port=app_config.app.redis.port,
+                redis_db=app_config.app.redis.db,
+                redis_password=app_config.app.redis.password,
+            )
 
         self.config = config
         self.redis_limiter: RedisRateLimiter | None = None
